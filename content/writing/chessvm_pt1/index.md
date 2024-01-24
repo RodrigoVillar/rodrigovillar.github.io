@@ -1,9 +1,8 @@
 +++
 title = "ChessVM Part I: What is a Blockchain?"
-date = 2024-01-06
+date = 2024-01-24
 
 [taxonomies]
-categories = ["one", "two"]
 tags = ["VMs", "Avalanche"]
 
 [extra]
