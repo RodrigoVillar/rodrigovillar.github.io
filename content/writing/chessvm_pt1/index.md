@@ -1,6 +1,6 @@
 +++
 title = "ChessVM Part I: What is a Blockchain?"
-date = 2024-01-24
+date = 2024-02-06
 
 [taxonomies]
 tags = ["VMs", "Avalanche"]
@@ -12,6 +12,7 @@ comment = false
 copy = true
 math = true
 mermaid = true
+quote = true
 outdate_alert = true
 outdate_alert_days = 120
 display_tags = true
@@ -41,13 +42,13 @@ past couple of months, I am now beginning to see the light at the end of the
 tunnel. I believe that my understanding of blockchain is now more in line with
 the literature of distributed systems (the field which blockchain builds upon)
 and the process of building a custom VM is no longer an alien task to me. But rather than writing a massive Medium
-article stating the accomplishment of building a custom VM, I am instead going
+article _simply stating_ the accomplishment of building a custom VM, I am instead going
 to create a series of writings which aim to accomplish the following:
 
 -   Establish what I believe a blockchain is
 -   Discuss the development process of building a VM and some takeaways
 
-These series of writings will revolve around _ChessVM_, a custom VM whose
+These series of writings will revolve around [_ChessVM_](https://github.com/RodrigoVillar/chessvm-rs), a custom VM whose
 architecture is designed for the creation and playing of Chess games on the
 blockchain. Before talking about _ChessVM_, or even how to go about implementing
 a virtual machine, I will start off with what I believe to be one of the biggest
@@ -256,6 +257,65 @@ sg1 --> id2
 
 {% end %}
 
+### Aside: VMs <> Consensus
+
+While in the drafting stages of this article, one suggestion that I receieved is
+for a deeper elaboration on where virtual machines fit in the systems that we
+consider blockchains. To address this, I will elaborate on the relationship
+between virtual machines and the consensus engines which many people associate
+with blockchains. For this, I will refer to the following diagram which depicts
+an Avalanche-like protocol:
+
+{% mermaid() %}
+
+---
+
+title: Distributed System Using a Blockchain
+
+---
+
+sequenceDiagram
+actor Consensus
+actor VM
+actor Client
+
+    Client->>VM: Send TX
+    loop while not enough TXs:
+       note over VM: wait
+    end
+    %% note over VM: Wait Until Block Can Be Built
+    %% VM->>VM: Wait Until Block Can Be Built
+    VM->>Consensus: I can build a block
+    Consensus->>VM: Send me a block
+    VM->>Consensus: Send proposed block
+    note over Consensus: Run Consensus Algorithm
+    Consensus->> VM: Notify of accepted block
+    note over VM: Update State Accordingly
+
+{% end %}
+
+Here, we have three actors: the Consensus Client, the VM, and an arbitrary
+client. Elaborating on each one:
+
+-   The Consensus Client: software responsible for telling the VM which blocks
+    to append to the blockchain. By utilizing mechanisms[^1] such as Proof of Stake
+    or Proof of Work, the consensus client is able to coordinate with all other
+    nodes in the network on which blocks to append to the blockchain.
+-   The VM: responsible for producing blocks and updating its state upon
+    receiving a new block from the consensus client
+-   The Client: an arbitrary user who submits read/write commands. In the case
+    of write commands, this is in the form of a transaction; for the write
+    command to be successful, the transaction must be included in a finalized
+    block.
+
+The diagram above makes clear the role of the VM: to execute commands from
+clients and to communicate with the consensus client regarding the state of the
+blockchain utilized. One important note here is that the consensus client is not a
+_singular_ actor; each node runs their own consensus software which allows nodes
+to communicate amongst one another and to eventually come to consensus on the
+state of the blockchain. However, each VM interacts with their associated
+consensus client (which is what the diagram represents).
+
 ## Rust-SDK (or Avalanche-RS)
 
 [Avalanche-RS](https://github.com/ava-labs/avalanche-rs) is a repository which,
@@ -272,3 +332,10 @@ commentary of what a virtual machine is, I will expand upon my definition (hint:
 VMs are also servers!).
 
 \- rjv
+
+[^1]:
+    Although I label mechanisms such as Proof of Stake as consensus
+    mechanisms, the reality is that such mechanisms are actually Sybil
+    resistance mechanisms. As an example, consider the Avalanche network; Proof
+    of Stake is the sybil resistance mechanism while the Snowman consensus
+    algorithm is the consensus mechanism used.
