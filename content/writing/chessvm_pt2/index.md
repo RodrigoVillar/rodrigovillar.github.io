@@ -1,6 +1,6 @@
 +++
 title = "ChessVM Part II: Building a Rust-Based VM"
-date = 2024-02-28
+date = 2024-03-04
 
 [taxonomies]
 tags = ["VMs", "Avalanche"]
@@ -99,9 +99,10 @@ flowchart LR
         end
 
         ch <--Data--> VM
-        ago(((AvalancheGo))) <--Blocks--> VM
     
     end 
+
+    ago(((AvalancheGo))) <--Blocks--> VM
 
 {% end %}
 
@@ -165,8 +166,10 @@ flowchart LR
         end
 
         ch <--Transactions--> VM
-        ago(((AvalancheGo))) <--Blocks--> VM
+
     end 
+
+    ago(((AvalancheGo))) <--Blocks--> VM
 
 {% end %}
 
@@ -273,44 +276,51 @@ leads to the following architecture (in the case of a 3-node network):
 flowchart LR
 
     subgraph node1[Node 1]
-        subgraph ago1[AvalancheGo]
 
-            Blocks1[Blocks]
-            vm1[VM]
+        ago1[AvalancheGo]
+
+        subgraph vm1[VM]
+
+            db1[(Database)]
 
         end
 
-        db1[(Database)]
+        vm1 <--Blocks--> ago1
 
     end
 
     subgraph node2[Node 2]
-        subgraph ago2[AvalancheGo]
+        
 
-            Blocks2[Blocks]
-            vm2[VM]
+        subgraph vm2[VM]
+
+            db2[(Database)]
 
         end
 
-        db2[(Database)]
+        ago2[AvalancheGo]
+
+        ago2 <--Blocks--> vm2
 
     end
 
     subgraph node3[Node 3]
-        subgraph ago3[AvalancheGo]
 
-            Blocks3[Blocks]
-            vm3[VM]
+        ago3[AvalancheGo]
+
+        subgraph vm3[VM]
+
+            db3[(Database)]
 
         end
 
-        db3[(Database)]
+        ago3 <--Blocks--> vm3
 
     end
 
-    ago1 <--> ago2
-    ago2 <--> ago3
-    ago1 <--> ago3
+    ago2 <--Blocks--> ago3
+    ago1 <--Blocks--> ago2
+    ago1 <--Blocks--> ago3
 
 {% end %}
 
