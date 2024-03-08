@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+    <url>
+        <loc>https://rodrigovillar.com/</loc>
+    </url>
+    <url>
+        <loc>https://rodrigovillar.com/projects/</loc>
+    </url>
+    <url>
+        <loc>https://rodrigovillar.com/tags/</loc>
+    </url>
+    <url>
+        <loc>https://rodrigovillar.com/tags/avalanche/</loc>
+    </url>
+    <url>
+        <loc>https://rodrigovillar.com/tags/vms/</loc>
+    </url>
+    <url>
+        <loc>https://rodrigovillar.com/writing/</loc>
+    </url>
+    <url>
+        <loc>https://rodrigovillar.com/writing/chessvm-pt1/</loc>
+        <lastmod>2024-02-06</lastmod>
+    </url>
+    <url>
+        <loc>https://rodrigovillar.com/writing/chessvm-pt2/</loc>
+        <lastmod>2024-03-08</lastmod>
+    </url>
+</urlset>

@@ -1,0 +1,71 @@
+[[project]]
+name = "ChessVM"
+desc = "A Rust-based implementation of a decentralized Chess platform"
+tags = ["VMs", "Avalanche", "Distributed Systems"]
+links = [ {name = "GitHub", url = "https://github.com/RodrigoVillar/chessvm-rs"} ]
+
+[[project]]
+name = "EVM Primer"
+desc = "Technical elaboration of the Ethereum Virtual Machine"
+tags = ["EVM", "Distributed Systems"]
+img = ""
+links = [
+  { name = "PDF", url = "files/evm_primer.pdf" }, 
+  { name = "LinkedIn", url = "https://www.linkedin.com/posts/rrodrigovillar_evm-primer-activity-7048738789459947520-FQnr?utm_source=share&utm_medium=member_desktop" }
+]
+
+[[project]]
+name = "LightEVM"
+desc = "Basic implementation of the EVM written in Python"
+tags = ["EVM", "Distributed Systems", "Python"]
+img = ""
+links = [
+  { name = "GitHub", url = "https://github.com/RodrigoVillar/LightEVM" },
+]
+
+[[project]]
+name = "OptionsDEX"
+desc = "Decentralized options exchange on the Avalanche C-Chain"
+tags = ["Avalanche", "DeFi", "Solidity"]
+img = ""
+links = [
+  { name = "GitHub", url = "https://github.com/RodrigoVillar/options-dex" },
+  { name = "Medium", url = "https://rrodrigovillar.medium.com/creating-a-decentralized-options-exchange-b6d6c284ea11" }
+]
+
+[[project]]
+name = "AlphaMac"
+desc = "Arithmetic practice for quant interviews"
+tags = ["Python", "Quant"]
+img = ""
+links = [
+  { name = "GitHub", url = "https://github.com/RodrigoVillar/AlphaMac" },
+]
+
+[[project]]
+name = "An Elaboration on Cross-Chain Arbitrage"
+desc = "Formalization of my notes on cross-chain arbitrage"
+tags = ["DeFi", "Arbitrage"]
+img=""
+links = [
+  {name = "PDF", url = "files/cross_chain_arbitrage.pdf"},
+  {name = "LinkedIn", url = "https://www.linkedin.com/posts/rrodrigovillar_cross-chain-arbitrage-research-paper-activity-6945089085870886912-PblW?utm_source=linkedin_share&utm_medium=member_desktop_web"}]
+
+[[project]]
+name = "Uniswap V2 Pricing"
+desc = "Research paper that investigates Uniswap V2 pricing model"
+tags = ["DeFi", "Mathematics"]
+img = ""
+links = [
+  { name = "PDF", url = "files/uniswap_v2_pricing.pdf" },
+  { name = "LinkedIn", url = "https://www.linkedin.com/posts/rrodrigovillar_uniswap-v2-pricing-activity-6909141667044323328-V3qu?utm_source=linkedin_share&utm_medium=member_desktop_web" },
+]
+
+[[project]]
+name = "A Preliminary Visual Look at Decentralized Exchanges"
+desc = "Visual graphs of liquidity pools on Uniswap V2 and Sushiswap"
+tags = ["DeFi"]
+img = ""
+links = [
+  { name = "Medium", url = "https://rrodrigovillar.medium.com/a-preliminary-visual-look-at-decentralized-exchanges-bb147d55ad8f" },
+]

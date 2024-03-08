@@ -1,0 +1,659 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+	<title>Writing</title>
+	<subtitle>Collection of my writings</subtitle>
+	<link href="https://rodrigovillar.com/writing/feed.xml" rel="self" type="application/atom+xml"/>
+    <link href="https://rodrigovillar.com/writing/"/>
+	<updated>2024-03-08T00:00:00+00:00</updated>
+	<id>https://rodrigovillar.com/writing/feed.xml</id>
+	<entry xml:lang="en">
+		<title>ChessVM Part II: Building a Rust-Based VM</title>
+		<published>2024-03-08T00:00:00+00:00</published>
+		<updated>2024-03-08T00:00:00+00:00</updated>
+		<link href="https://rodrigovillar.com/writing/chessvm-pt2/" type="text/html"/>
+		<id>https://rodrigovillar.com/writing/chessvm-pt2/</id>
+		<content type="html">&lt;p&gt;In the &lt;a href=&quot;..&#x2F;chessvm-pt1&quot;&gt;previous&lt;&#x2F;a&gt; section, I spent a substantial amount of time covering the definition of what a blockchain is, from the perspective of distributed systems literature. For those looking for a concise summary, I claimed the following:&lt;&#x2F;p&gt;
+&lt;blockquote class=&quot;quote&quot;&gt;
+    
+    &lt;div class=&quot;icon&quot; style=&quot;display: none&quot;&gt;&lt;svg
+  width=&quot;20&quot;
+  height=&quot;20&quot;
+  viewBox=&quot;0 0 24 24&quot;
+  fill=&quot;none&quot;
+  xmlns=&quot;http:&#x2F;&#x2F;www.w3.org&#x2F;2000&#x2F;svg&quot;
+&gt;
+  &lt;path d=&quot;M9.13456 9H12.1346L10 14.6075H7L9.13456 9Z&quot; fill=&quot;currentColor&quot; &#x2F;&gt;
+  &lt;path d=&quot;M14.1346 9H17.1346L15 14.6075H12L14.1346 9Z&quot; fill=&quot;currentColor&quot; &#x2F;&gt;
+&lt;&#x2F;svg&gt;&lt;&#x2F;div&gt;
+    &lt;div class=&quot;content&quot;&gt;&lt;p&gt;The networks that we consider as &amp;quot;blockchains,&amp;quot; in reality, are just distributed databases that are updated using a blockchain. Virtual machines, then, are (at a fundamental level) responsible for updating the database upon recieving a new block.&lt;&#x2F;p&gt;
+&lt;&#x2F;div&gt;
+    
+&lt;&#x2F;blockquote&gt;
+&lt;p&gt;Some might consider the previous post to be a bit pedantic, but I believe that my elaborations provide the foundation necessary for what we will be going over in the next two posts: a virtual machine implementation designed to host a chess platform.&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;aside-state-machine-replication-blockchains&quot;&gt;Aside: State Machine Replication &amp;lt;&amp;gt; Blockchains&lt;a class=&quot;zola-anchor&quot; href=&quot;#aside-state-machine-replication-blockchains&quot; aria-label=&quot;Anchor link for: aside-state-machine-replication-blockchains&quot; style=&quot;visibility: hidden;&quot;&gt;#&lt;&#x2F;a&gt;&lt;&#x2F;h2&gt;
+&lt;p&gt;Having covered blockchains from the perspective of distributed systems literature, it is easy now to go over the concept of virtual machines as well. Consider a &lt;em&gt;perfect&lt;&#x2F;em&gt; server; that is, a server that is guaranteed to never go down. Like any server, this server is designed with a specific purpose in mind, and so let&#x27;s assume that this server is running an instance of the EVM. Under this scenario, a virtual machine is synonymous with traditional servers in that it receieves a client request, executes said request, and returns the result in the client.&lt;&#x2F;p&gt;
+&lt;p&gt;Although a &lt;em&gt;perfect&lt;&#x2F;em&gt; server would be a lovely thing to have in the world,
+there&#x27;s just one small issue: &lt;em&gt;perfect&lt;&#x2F;em&gt; servers &lt;strong&gt;don&#x27;t&lt;&#x2F;strong&gt; exist. Servers crash
+and&#x2F;or go offline and therefore, there needs to exist a way for the state of our
+server to continue existing even if our server goes down. For this, we look to
+state machine replication; instead of hosting the state of our application on
+one node, we host it on several node. Therefore, if we expect at most $f$ node
+to crash, and we have at least $f + 1$ nodes in our network, than we can expect
+for the state of our application to exist on at least one node. Under this
+model, clients now just send their requests to all nodes in the network, each
+online node will execute said request, and will send a reply back to the client.
+However, consider the following situation:&lt;&#x2F;p&gt;
+&lt;figure&gt;
+    &lt;img src=&quot;img&amp;#x2F;msg_delays.jpg&quot;  alt=&quot;Message Delays
+under a State Machine Replication Model&quot;&gt;
+    
+    &lt;figcaption&gt;Message Delays
+under a State Machine Replication Model&lt;&#x2F;figcaption&gt;
+    
+&lt;&#x2F;figure&gt;
+&lt;p&gt;Here, we have three actors: a client and two server nodes. Furthermore, let&#x27;s define messages $m_1, m_2$ as follows:&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;$m_1$: write $x$ at slot $n$ of contract $a$&lt;&#x2F;li&gt;
+&lt;li&gt;$m_2$: write $x&#x27;$ at slot $n$ of contract $a$ (where $x&#x27; \neq x$)&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;The client in this scenario sends out $m_1, m_2$ in that order and expects that after both operations, regardless of which server it queries, that slot $n$ of contract $a$ will be $x&#x27;$. However, this assumes that communication channels between nodes (clients and servers) are FIFO; in the real world, this is not the case. As the image above demonstrates, there exists a case where node 1 receives $(m_1, m_2)$ while node 2 receives $(m_2, m_1)$. Thus, if the client were to query nodes 1 and 2 after each node have executed their operations, the client would see that there is a disagreement in the network over the value at slot $n$ of contract $a$. As it might become apparent, the virtual machine&#x27;s sole responsibility of executing client requests is not sufficient; virtual machines also need to come to &lt;em&gt;consensus&lt;&#x2F;em&gt; regarding which state their database should be.&lt;&#x2F;p&gt;
+&lt;p&gt;We can go about different ways which we can create a consensus mechanism for which nodes can come to agreement regarding their states. However, we can instead let an external actor take care of this for us and help whenever necessary. In this case, the external actor is AvalancheGo which manages the consensus mechanism for us and asks for the virtual machine to satisfy the following:&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;Notify of the possibility of a block being able to be produced&lt;&#x2F;li&gt;
+&lt;li&gt;Produce and deliver a block when asked to&lt;&#x2F;li&gt;
+&lt;li&gt;Execute the necessary state transition upon receipt of an accepted block&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;Now understanding the new responsibilities of a virtual machine, we are now ready to look at the architectures of TimestampVM and ChessVM; both architectures, in addition to executing client requests whenever possible, are also designed to interact with AvalancheGo in order to facilitate the network consensus process.&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;timestampvm-architecture&quot;&gt;TimestampVM Architecture&lt;a class=&quot;zola-anchor&quot; href=&quot;#timestampvm-architecture&quot; aria-label=&quot;Anchor link for: timestampvm-architecture&quot; style=&quot;visibility: hidden;&quot;&gt;#&lt;&#x2F;a&gt;&lt;&#x2F;h2&gt;
+&lt;p&gt;Before covering the architecture of &lt;em&gt;ChessVM&lt;&#x2F;em&gt;, it is first important to discuss &lt;em&gt;TimestampVM&lt;&#x2F;em&gt;, the virtual machine which &lt;em&gt;ChessVM&lt;&#x2F;em&gt; forks. When discussing about &lt;em&gt;TimestampVM&lt;&#x2F;em&gt; in the &lt;a rel=&quot;nofollow noreferrer&quot; href=&quot;https:&#x2F;&#x2F;docs.avax.network&#x2F;build&#x2F;vm&#x2F;timestampvm&#x2F;introduction#idea-of-timestampvm&quot;&gt;Avalanche documentation&lt;&#x2F;a&gt;, I wrote the following:&lt;&#x2F;p&gt;
+&lt;blockquote class=&quot;quote&quot;&gt;
+    
+    &lt;div class=&quot;icon&quot; style=&quot;display: none&quot;&gt;&lt;svg
+  width=&quot;20&quot;
+  height=&quot;20&quot;
+  viewBox=&quot;0 0 24 24&quot;
+  fill=&quot;none&quot;
+  xmlns=&quot;http:&#x2F;&#x2F;www.w3.org&#x2F;2000&#x2F;svg&quot;
+&gt;
+  &lt;path d=&quot;M9.13456 9H12.1346L10 14.6075H7L9.13456 9Z&quot; fill=&quot;currentColor&quot; &#x2F;&gt;
+  &lt;path d=&quot;M14.1346 9H17.1346L15 14.6075H12L14.1346 9Z&quot; fill=&quot;currentColor&quot; &#x2F;&gt;
+&lt;&#x2F;svg&gt;&lt;&#x2F;div&gt;
+    &lt;div class=&quot;content&quot;&gt;&lt;p&gt;In contrast to complex VMs like the EVM which provide a general-purpose computing environment, TimestampVM is much, much simpler. In fact, we can describe the goal of TimestampVM in two bullet points:&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;To store the timestamp when each block was appended to the blockchain&lt;&#x2F;li&gt;
+&lt;li&gt;To store arbitrary payloads of data (within each block)&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;div&gt;
+    
+&lt;&#x2F;blockquote&gt;
+&lt;p&gt;While the intent of the virtual machine is relatively simple, we still need to create an architecture which incorporates the following actors: clients which make read requests and write proposals, the consensus process (i.e. AvalancheGo), and the virtual machine itself (i.e. the node), which is responsible for updating its own database. Trying to describe the architecture of &lt;em&gt;TimestampVM&lt;&#x2F;em&gt; with just words can be extremely verbose, and looking at the codebase itself is even worse. Therefore, it is best if we look at the architecture visually:&lt;&#x2F;p&gt;
+&lt;pre class=&quot;mermaid&quot;&gt;
+  flowchart LR
+
+    client[&amp;quot;Client&amp;quot;] &amp;lt;--Commands&amp;#x2F;Replies--&amp;gt; ch
+
+    subgraph TimestampVM[TimestampVM Architecture]
+
+        subgraph handlers[APIs]
+            
+            ch[&amp;quot;Chain Handlers&amp;quot;] 
+            sh[&amp;quot;Static Handlers&amp;quot;] 
+        
+        end
+
+        subgraph VM
+            v_blk_db[(Verified Block Database)] 
+            a_blk_db[(Accepted Block Database)] 
+        end
+
+        ch &amp;lt;--Data--&amp;gt; VM
+    
+    end 
+
+    ago(((AvalancheGo))) &amp;lt;--Blocks--&amp;gt; VM
+&lt;&#x2F;pre&gt;
+&lt;p&gt;We elaborate on the most important components of the TimestampVM architecture:&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;timestamp-chain-handlers&quot;&gt;Timestamp Chain Handlers&lt;a class=&quot;zola-anchor&quot; href=&quot;#timestamp-chain-handlers&quot; aria-label=&quot;Anchor link for: timestamp-chain-handlers&quot; style=&quot;visibility: hidden;&quot;&gt;#&lt;&#x2F;a&gt;&lt;&#x2F;h3&gt;
+&lt;p&gt;The chain handler is responsible for providing a list of gRPC functions which a client can call; upon an execution of one of these functions, the chain handler is responsible for either returning immediately&lt;sup class=&quot;footnote-reference&quot;&gt;&lt;a href=&quot;#1&quot;&gt;1&lt;&#x2F;a&gt;&lt;&#x2F;sup&gt; (in the case of a read request) or submitting a proposal to the VM which is (hopefully) execution via inclusion in a chosen block. In the case of TimestampVM, we can find the list of supported gRPC functions below:&lt;&#x2F;p&gt;
+&lt;div class=&quot;codeblock-with-filename&quot;&gt;
+  &lt;div class=&quot;filename&quot;&gt;chain_handlers.rs&lt;&#x2F;div&gt;
+  &lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust z-code&quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&lt;span class=&quot;z-source z-rust&quot;&gt;&lt;span class=&quot;z-comment z-line z-documentation z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-definition z-comment z-rust&quot;&gt;&#x2F;&#x2F;&#x2F;&lt;&#x2F;span&gt; Defines RPCs specific to the chain.
+&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-annotation z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-definition z-annotation z-rust&quot;&gt;#&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-section z-group z-begin z-rust&quot;&gt;[&lt;&#x2F;span&gt;&lt;span class=&quot;z-variable z-annotation z-rust&quot;&gt;rpc&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-section z-group z-end z-rust&quot;&gt;]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;z-meta z-trait z-rust&quot;&gt;&lt;span class=&quot;z-storage z-modifier z-rust&quot;&gt;pub&lt;&#x2F;span&gt; &lt;span class=&quot;z-storage z-type z-trait z-rust&quot;&gt;trait&lt;&#x2F;span&gt; &lt;span class=&quot;z-entity z-name z-trait z-rust&quot;&gt;Rpc&lt;&#x2F;span&gt; &lt;span class=&quot;z-meta z-block z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-block z-begin z-rust&quot;&gt;{&lt;&#x2F;span&gt;
+    &lt;span class=&quot;z-comment z-line z-documentation z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-definition z-comment z-rust&quot;&gt;&#x2F;&#x2F;&#x2F;&lt;&#x2F;span&gt; Pings the VM.
+&lt;&#x2F;span&gt;    &lt;span class=&quot;z-meta z-annotation z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-definition z-annotation z-rust&quot;&gt;#&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-section z-group z-begin z-rust&quot;&gt;[&lt;&#x2F;span&gt;&lt;span class=&quot;z-variable z-annotation z-rust&quot;&gt;rpc&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-annotation z-parameters z-rust&quot;&gt;&lt;span class=&quot;z-meta z-group z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-group z-begin z-rust&quot;&gt;(&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-annotation z-parameters z-rust&quot;&gt;&lt;span class=&quot;z-meta z-group z-rust&quot;&gt;name &lt;span class=&quot;z-keyword z-operator z-rust&quot;&gt;=&lt;&#x2F;span&gt; &lt;span class=&quot;z-string z-quoted z-double z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-definition z-string z-begin z-rust&quot;&gt;&amp;quot;&lt;&#x2F;span&gt;ping&lt;span class=&quot;z-punctuation z-definition z-string z-end z-rust&quot;&gt;&amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-separator z-rust&quot;&gt;,&lt;&#x2F;span&gt; &lt;span class=&quot;z-meta z-function-call z-rust&quot;&gt;&lt;span class=&quot;z-variable z-function z-rust&quot;&gt;alias&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-group z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-group z-begin z-rust&quot;&gt;(&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-function-call z-rust&quot;&gt;&lt;span class=&quot;z-string z-quoted z-double z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-definition z-string z-begin z-rust&quot;&gt;&amp;quot;&lt;&#x2F;span&gt;timestampvm.ping&lt;span class=&quot;z-punctuation z-definition z-string z-end z-rust&quot;&gt;&amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-function-call z-rust&quot;&gt;&lt;span class=&quot;z-meta z-group z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-group z-end z-rust&quot;&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-annotation z-parameters z-rust&quot;&gt;&lt;span class=&quot;z-meta z-group z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-group z-end z-rust&quot;&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-section z-group z-end z-rust&quot;&gt;]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+    &lt;span class=&quot;z-meta z-function z-rust&quot;&gt;&lt;span class=&quot;z-meta z-function z-rust&quot;&gt;&lt;span class=&quot;z-storage z-type z-function z-rust&quot;&gt;fn&lt;&#x2F;span&gt; &lt;&#x2F;span&gt;&lt;span class=&quot;z-entity z-name z-function z-rust&quot;&gt;ping&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-function z-rust&quot;&gt;&lt;span class=&quot;z-meta z-function z-parameters z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-parameters z-begin z-rust&quot;&gt;(&lt;&#x2F;span&gt;&lt;span class=&quot;z-keyword z-operator z-rust&quot;&gt;&amp;amp;&lt;&#x2F;span&gt;&lt;span class=&quot;z-variable z-parameter z-rust&quot;&gt;self&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-function z-rust&quot;&gt;&lt;span class=&quot;z-meta z-function z-parameters z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-parameters z-end z-rust&quot;&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-function z-rust&quot;&gt; &lt;span class=&quot;z-meta z-function z-return-type z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-separator z-rust&quot;&gt;-&amp;gt;&lt;&#x2F;span&gt; &lt;span class=&quot;z-meta z-generic z-rust&quot;&gt;BoxFuture&lt;span class=&quot;z-punctuation z-definition z-generic z-begin z-rust&quot;&gt;&amp;lt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-generic z-rust&quot;&gt;&lt;span class=&quot;z-support z-type z-rust&quot;&gt;Result&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-definition z-generic z-begin z-rust&quot;&gt;&amp;lt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-path z-rust&quot;&gt;crate&lt;span class=&quot;z-punctuation z-accessor z-rust&quot;&gt;::&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-path z-rust&quot;&gt;api&lt;span class=&quot;z-punctuation z-accessor z-rust&quot;&gt;::&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;PingResponse&lt;span class=&quot;z-punctuation z-definition z-generic z-end z-rust&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-definition z-generic z-end z-rust&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-terminator z-rust&quot;&gt;;&lt;&#x2F;span&gt;
+
+    &lt;span class=&quot;z-comment z-line z-documentation z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-definition z-comment z-rust&quot;&gt;&#x2F;&#x2F;&#x2F;&lt;&#x2F;span&gt; Proposes the arbitrary data.
+&lt;&#x2F;span&gt;    &lt;span class=&quot;z-meta z-annotation z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-definition z-annotation z-rust&quot;&gt;#&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-section z-group z-begin z-rust&quot;&gt;[&lt;&#x2F;span&gt;&lt;span class=&quot;z-variable z-annotation z-rust&quot;&gt;rpc&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-annotation z-parameters z-rust&quot;&gt;&lt;span class=&quot;z-meta z-group z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-group z-begin z-rust&quot;&gt;(&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-annotation z-parameters z-rust&quot;&gt;&lt;span class=&quot;z-meta z-group z-rust&quot;&gt;name &lt;span class=&quot;z-keyword z-operator z-rust&quot;&gt;=&lt;&#x2F;span&gt; &lt;span class=&quot;z-string z-quoted z-double z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-definition z-string z-begin z-rust&quot;&gt;&amp;quot;&lt;&#x2F;span&gt;proposeBlock&lt;span class=&quot;z-punctuation z-definition z-string z-end z-rust&quot;&gt;&amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-separator z-rust&quot;&gt;,&lt;&#x2F;span&gt; &lt;span class=&quot;z-meta z-function-call z-rust&quot;&gt;&lt;span class=&quot;z-variable z-function z-rust&quot;&gt;alias&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-group z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-group z-begin z-rust&quot;&gt;(&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-function-call z-rust&quot;&gt;&lt;span class=&quot;z-string z-quoted z-double z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-definition z-string z-begin z-rust&quot;&gt;&amp;quot;&lt;&#x2F;span&gt;timestampvm.proposeBlock&lt;span class=&quot;z-punctuation z-definition z-string z-end z-rust&quot;&gt;&amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-function-call z-rust&quot;&gt;&lt;span class=&quot;z-meta z-group z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-group z-end z-rust&quot;&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-annotation z-parameters z-rust&quot;&gt;&lt;span class=&quot;z-meta z-group z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-group z-end z-rust&quot;&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-section z-group z-end z-rust&quot;&gt;]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+    &lt;span class=&quot;z-meta z-function z-rust&quot;&gt;&lt;span class=&quot;z-meta z-function z-rust&quot;&gt;&lt;span class=&quot;z-storage z-type z-function z-rust&quot;&gt;fn&lt;&#x2F;span&gt; &lt;&#x2F;span&gt;&lt;span class=&quot;z-entity z-name z-function z-rust&quot;&gt;propose_block&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-function z-rust&quot;&gt;&lt;span class=&quot;z-meta z-function z-parameters z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-parameters z-begin z-rust&quot;&gt;(&lt;&#x2F;span&gt;&lt;span class=&quot;z-keyword z-operator z-rust&quot;&gt;&amp;amp;&lt;&#x2F;span&gt;&lt;span class=&quot;z-variable z-parameter z-rust&quot;&gt;self&lt;&#x2F;span&gt;, &lt;span class=&quot;z-variable z-parameter z-rust&quot;&gt;args&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-separator z-rust&quot;&gt;:&lt;&#x2F;span&gt; ProposeBlockArgs&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-function z-rust&quot;&gt;&lt;span class=&quot;z-meta z-function z-parameters z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-parameters z-end z-rust&quot;&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-function z-rust&quot;&gt; &lt;span class=&quot;z-meta z-function z-return-type z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-separator z-rust&quot;&gt;-&amp;gt;&lt;&#x2F;span&gt; &lt;span class=&quot;z-meta z-generic z-rust&quot;&gt;BoxFuture&lt;span class=&quot;z-punctuation z-definition z-generic z-begin z-rust&quot;&gt;&amp;lt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-generic z-rust&quot;&gt;&lt;span class=&quot;z-support z-type z-rust&quot;&gt;Result&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-definition z-generic z-begin z-rust&quot;&gt;&amp;lt;&lt;&#x2F;span&gt;ProposeBlockResponse&lt;span class=&quot;z-punctuation z-definition z-generic z-end z-rust&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-definition z-generic z-end z-rust&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-terminator z-rust&quot;&gt;;&lt;&#x2F;span&gt;
+
+    &lt;span class=&quot;z-comment z-line z-documentation z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-definition z-comment z-rust&quot;&gt;&#x2F;&#x2F;&#x2F;&lt;&#x2F;span&gt; Fetches the last accepted block.
+&lt;&#x2F;span&gt;    &lt;span class=&quot;z-meta z-annotation z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-definition z-annotation z-rust&quot;&gt;#&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-section z-group z-begin z-rust&quot;&gt;[&lt;&#x2F;span&gt;&lt;span class=&quot;z-variable z-annotation z-rust&quot;&gt;rpc&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-annotation z-parameters z-rust&quot;&gt;&lt;span class=&quot;z-meta z-group z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-group z-begin z-rust&quot;&gt;(&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-annotation z-parameters z-rust&quot;&gt;&lt;span class=&quot;z-meta z-group z-rust&quot;&gt;name &lt;span class=&quot;z-keyword z-operator z-rust&quot;&gt;=&lt;&#x2F;span&gt; &lt;span class=&quot;z-string z-quoted z-double z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-definition z-string z-begin z-rust&quot;&gt;&amp;quot;&lt;&#x2F;span&gt;lastAccepted&lt;span class=&quot;z-punctuation z-definition z-string z-end z-rust&quot;&gt;&amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-separator z-rust&quot;&gt;,&lt;&#x2F;span&gt; &lt;span class=&quot;z-meta z-function-call z-rust&quot;&gt;&lt;span class=&quot;z-variable z-function z-rust&quot;&gt;alias&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-group z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-group z-begin z-rust&quot;&gt;(&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-function-call z-rust&quot;&gt;&lt;span class=&quot;z-string z-quoted z-double z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-definition z-string z-begin z-rust&quot;&gt;&amp;quot;&lt;&#x2F;span&gt;timestampvm.lastAccepted&lt;span class=&quot;z-punctuation z-definition z-string z-end z-rust&quot;&gt;&amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-function-call z-rust&quot;&gt;&lt;span class=&quot;z-meta z-group z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-group z-end z-rust&quot;&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-annotation z-parameters z-rust&quot;&gt;&lt;span class=&quot;z-meta z-group z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-group z-end z-rust&quot;&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-section z-group z-end z-rust&quot;&gt;]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+    &lt;span class=&quot;z-meta z-function z-rust&quot;&gt;&lt;span class=&quot;z-meta z-function z-rust&quot;&gt;&lt;span class=&quot;z-storage z-type z-function z-rust&quot;&gt;fn&lt;&#x2F;span&gt; &lt;&#x2F;span&gt;&lt;span class=&quot;z-entity z-name z-function z-rust&quot;&gt;last_accepted&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-function z-rust&quot;&gt;&lt;span class=&quot;z-meta z-function z-parameters z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-parameters z-begin z-rust&quot;&gt;(&lt;&#x2F;span&gt;&lt;span class=&quot;z-keyword z-operator z-rust&quot;&gt;&amp;amp;&lt;&#x2F;span&gt;&lt;span class=&quot;z-variable z-parameter z-rust&quot;&gt;self&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-function z-rust&quot;&gt;&lt;span class=&quot;z-meta z-function z-parameters z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-parameters z-end z-rust&quot;&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-function z-rust&quot;&gt; &lt;span class=&quot;z-meta z-function z-return-type z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-separator z-rust&quot;&gt;-&amp;gt;&lt;&#x2F;span&gt; &lt;span class=&quot;z-meta z-generic z-rust&quot;&gt;BoxFuture&lt;span class=&quot;z-punctuation z-definition z-generic z-begin z-rust&quot;&gt;&amp;lt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-generic z-rust&quot;&gt;&lt;span class=&quot;z-support z-type z-rust&quot;&gt;Result&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-definition z-generic z-begin z-rust&quot;&gt;&amp;lt;&lt;&#x2F;span&gt;LastAcceptedResponse&lt;span class=&quot;z-punctuation z-definition z-generic z-end z-rust&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-definition z-generic z-end z-rust&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-terminator z-rust&quot;&gt;;&lt;&#x2F;span&gt;
+
+    &lt;span class=&quot;z-comment z-line z-documentation z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-definition z-comment z-rust&quot;&gt;&#x2F;&#x2F;&#x2F;&lt;&#x2F;span&gt; Fetches the block.
+&lt;&#x2F;span&gt;    &lt;span class=&quot;z-meta z-annotation z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-definition z-annotation z-rust&quot;&gt;#&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-section z-group z-begin z-rust&quot;&gt;[&lt;&#x2F;span&gt;&lt;span class=&quot;z-variable z-annotation z-rust&quot;&gt;rpc&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-annotation z-parameters z-rust&quot;&gt;&lt;span class=&quot;z-meta z-group z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-group z-begin z-rust&quot;&gt;(&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-annotation z-parameters z-rust&quot;&gt;&lt;span class=&quot;z-meta z-group z-rust&quot;&gt;name &lt;span class=&quot;z-keyword z-operator z-rust&quot;&gt;=&lt;&#x2F;span&gt; &lt;span class=&quot;z-string z-quoted z-double z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-definition z-string z-begin z-rust&quot;&gt;&amp;quot;&lt;&#x2F;span&gt;getBlock&lt;span class=&quot;z-punctuation z-definition z-string z-end z-rust&quot;&gt;&amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-separator z-rust&quot;&gt;,&lt;&#x2F;span&gt; &lt;span class=&quot;z-meta z-function-call z-rust&quot;&gt;&lt;span class=&quot;z-variable z-function z-rust&quot;&gt;alias&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-group z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-group z-begin z-rust&quot;&gt;(&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-function-call z-rust&quot;&gt;&lt;span class=&quot;z-string z-quoted z-double z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-definition z-string z-begin z-rust&quot;&gt;&amp;quot;&lt;&#x2F;span&gt;timestampvm.getBlock&lt;span class=&quot;z-punctuation z-definition z-string z-end z-rust&quot;&gt;&amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-function-call z-rust&quot;&gt;&lt;span class=&quot;z-meta z-group z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-group z-end z-rust&quot;&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-annotation z-parameters z-rust&quot;&gt;&lt;span class=&quot;z-meta z-group z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-group z-end z-rust&quot;&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-section z-group z-end z-rust&quot;&gt;]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+    &lt;span class=&quot;z-meta z-function z-rust&quot;&gt;&lt;span class=&quot;z-meta z-function z-rust&quot;&gt;&lt;span class=&quot;z-storage z-type z-function z-rust&quot;&gt;fn&lt;&#x2F;span&gt; &lt;&#x2F;span&gt;&lt;span class=&quot;z-entity z-name z-function z-rust&quot;&gt;get_block&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-function z-rust&quot;&gt;&lt;span class=&quot;z-meta z-function z-parameters z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-parameters z-begin z-rust&quot;&gt;(&lt;&#x2F;span&gt;&lt;span class=&quot;z-keyword z-operator z-rust&quot;&gt;&amp;amp;&lt;&#x2F;span&gt;&lt;span class=&quot;z-variable z-parameter z-rust&quot;&gt;self&lt;&#x2F;span&gt;, &lt;span class=&quot;z-variable z-parameter z-rust&quot;&gt;args&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-separator z-rust&quot;&gt;:&lt;&#x2F;span&gt; GetBlockArgs&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-function z-rust&quot;&gt;&lt;span class=&quot;z-meta z-function z-parameters z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-parameters z-end z-rust&quot;&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-function z-rust&quot;&gt; &lt;span class=&quot;z-meta z-function z-return-type z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-separator z-rust&quot;&gt;-&amp;gt;&lt;&#x2F;span&gt; &lt;span class=&quot;z-meta z-generic z-rust&quot;&gt;BoxFuture&lt;span class=&quot;z-punctuation z-definition z-generic z-begin z-rust&quot;&gt;&amp;lt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-generic z-rust&quot;&gt;&lt;span class=&quot;z-support z-type z-rust&quot;&gt;Result&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-definition z-generic z-begin z-rust&quot;&gt;&amp;lt;&lt;&#x2F;span&gt;GetBlockResponse&lt;span class=&quot;z-punctuation z-definition z-generic z-end z-rust&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-definition z-generic z-end z-rust&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-terminator z-rust&quot;&gt;;&lt;&#x2F;span&gt;
+&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-block z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-block z-end z-rust&quot;&gt;}&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+  
+&lt;&#x2F;div&gt;&lt;h3 id=&quot;timestamp-vm&quot;&gt;Timestamp VM&lt;a class=&quot;zola-anchor&quot; href=&quot;#timestamp-vm&quot; aria-label=&quot;Anchor link for: timestamp-vm&quot; style=&quot;visibility: hidden;&quot;&gt;#&lt;&#x2F;a&gt;&lt;&#x2F;h3&gt;
+&lt;p&gt;From the previous section, read requests (i.e. the functions &lt;code&gt;ping()&lt;&#x2F;code&gt;, &lt;code&gt;last_accepted()&lt;&#x2F;code&gt;, &lt;code&gt;get_block()&lt;&#x2F;code&gt;) only require us to read into the state of the VM and therefore, the VM itself does not do much with respect to these types of operations. However, things start to get interesting when we consider the &lt;code&gt;propose_block()&lt;&#x2F;code&gt; function; in TimestampVM, the &lt;code&gt;propose_block()&lt;&#x2F;code&gt; function proposes to add a byte-array to the state of the system (by wrapping said byte-array in a block and then appending that block to the stored blockchain). Therefore, for a client&#x27;s call of &lt;code&gt;propose_block()&lt;&#x2F;code&gt; to go through, the VM needs to propose the neccessary block to AvalancheGo and execute the neccessary state changes once AvalancheGo marks the block as accepted (assuming it does).&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;chessvm-architecture&quot;&gt;ChessVM Architecture&lt;a class=&quot;zola-anchor&quot; href=&quot;#chessvm-architecture&quot; aria-label=&quot;Anchor link for: chessvm-architecture&quot; style=&quot;visibility: hidden;&quot;&gt;#&lt;&#x2F;a&gt;&lt;&#x2F;h2&gt;
+&lt;p&gt;Given that &lt;em&gt;ChessVM&lt;&#x2F;em&gt; is a fork of &lt;em&gt;TimestampVM&lt;&#x2F;em&gt; and its architecture is more sophisticated, we will again use a visual representation:&lt;&#x2F;p&gt;
+&lt;pre class=&quot;mermaid&quot;&gt;
+  flowchart LR
+
+    client[&amp;quot;Client&amp;quot;] &amp;lt;--Commands&amp;#x2F;Replies--&amp;gt; ch
+
+    subgraph ChessVMA[ChessVM Architecture]
+
+        subgraph handlers[APIs]
+            ch[&amp;quot;Chain Handlers&amp;quot;] 
+            sh[&amp;quot;Static Handlers&amp;quot;] 
+        end
+
+        subgraph VM
+            v_blk_db[(Verified Block Database)] 
+            a_blk_db[(Accepted Block Database)] 
+            ch_db[(Chess Game Database)] 
+        end
+
+        ch &amp;lt;--Transactions--&amp;gt; VM
+
+    end 
+
+    ago(((AvalancheGo))) &amp;lt;--Blocks--&amp;gt; VM
+&lt;&#x2F;pre&gt;
+&lt;p&gt;Although the visual elaboration of the ChessVM architecture looks similar to that of TimestampVM, there are some major differences:&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;In the case of write proposal, we are not simply sending a byte-array over to the VM. Rather, we create a transaction associated with the write proposal of the client and submit it to the VM.&lt;&#x2F;li&gt;
+&lt;li&gt;In addition to separating the storage of verified and accepted blocks, we are also reserving storage for chess games.&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;Just like with TimestampVM, we will touch on the important components that define ChessVM:&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;chess-chain-handlers&quot;&gt;Chess Chain Handlers&lt;a class=&quot;zola-anchor&quot; href=&quot;#chess-chain-handlers&quot; aria-label=&quot;Anchor link for: chess-chain-handlers&quot; style=&quot;visibility: hidden;&quot;&gt;#&lt;&#x2F;a&gt;&lt;&#x2F;h3&gt;
+&lt;p&gt;Below is the list of available gRPC methods that clients are able to call:&lt;&#x2F;p&gt;
+&lt;div class=&quot;codeblock-with-filename&quot;&gt;
+  &lt;div class=&quot;filename&quot;&gt;chain_handlers.rs&lt;&#x2F;div&gt;
+  &lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust z-code&quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&lt;span class=&quot;z-source z-rust&quot;&gt;&lt;span class=&quot;z-meta z-annotation z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-definition z-annotation z-rust&quot;&gt;#&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-section z-group z-begin z-rust&quot;&gt;[&lt;&#x2F;span&gt;&lt;span class=&quot;z-variable z-annotation z-rust&quot;&gt;rpc&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-section z-group z-end z-rust&quot;&gt;]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;z-meta z-trait z-rust&quot;&gt;&lt;span class=&quot;z-storage z-modifier z-rust&quot;&gt;pub&lt;&#x2F;span&gt; &lt;span class=&quot;z-storage z-type z-trait z-rust&quot;&gt;trait&lt;&#x2F;span&gt; &lt;span class=&quot;z-entity z-name z-trait z-rust&quot;&gt;Rpc&lt;&#x2F;span&gt; &lt;span class=&quot;z-meta z-block z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-block z-begin z-rust&quot;&gt;{&lt;&#x2F;span&gt;
+    &lt;span class=&quot;z-comment z-line z-documentation z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-definition z-comment z-rust&quot;&gt;&#x2F;&#x2F;&#x2F;&lt;&#x2F;span&gt; Pings the VM.
+&lt;&#x2F;span&gt;    &lt;span class=&quot;z-meta z-annotation z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-definition z-annotation z-rust&quot;&gt;#&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-section z-group z-begin z-rust&quot;&gt;[&lt;&#x2F;span&gt;&lt;span class=&quot;z-variable z-annotation z-rust&quot;&gt;rpc&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-annotation z-parameters z-rust&quot;&gt;&lt;span class=&quot;z-meta z-group z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-group z-begin z-rust&quot;&gt;(&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-annotation z-parameters z-rust&quot;&gt;&lt;span class=&quot;z-meta z-group z-rust&quot;&gt;name &lt;span class=&quot;z-keyword z-operator z-rust&quot;&gt;=&lt;&#x2F;span&gt; &lt;span class=&quot;z-string z-quoted z-double z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-definition z-string z-begin z-rust&quot;&gt;&amp;quot;&lt;&#x2F;span&gt;ping&lt;span class=&quot;z-punctuation z-definition z-string z-end z-rust&quot;&gt;&amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-separator z-rust&quot;&gt;,&lt;&#x2F;span&gt; &lt;span class=&quot;z-meta z-function-call z-rust&quot;&gt;&lt;span class=&quot;z-variable z-function z-rust&quot;&gt;alias&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-group z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-group z-begin z-rust&quot;&gt;(&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-function-call z-rust&quot;&gt;&lt;span class=&quot;z-string z-quoted z-double z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-definition z-string z-begin z-rust&quot;&gt;&amp;quot;&lt;&#x2F;span&gt;chessvm.ping&lt;span class=&quot;z-punctuation z-definition z-string z-end z-rust&quot;&gt;&amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-function-call z-rust&quot;&gt;&lt;span class=&quot;z-meta z-group z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-group z-end z-rust&quot;&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-annotation z-parameters z-rust&quot;&gt;&lt;span class=&quot;z-meta z-group z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-group z-end z-rust&quot;&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-section z-group z-end z-rust&quot;&gt;]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+    &lt;span class=&quot;z-meta z-function z-rust&quot;&gt;&lt;span class=&quot;z-meta z-function z-rust&quot;&gt;&lt;span class=&quot;z-storage z-type z-function z-rust&quot;&gt;fn&lt;&#x2F;span&gt; &lt;&#x2F;span&gt;&lt;span class=&quot;z-entity z-name z-function z-rust&quot;&gt;ping&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-function z-rust&quot;&gt;&lt;span class=&quot;z-meta z-function z-parameters z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-parameters z-begin z-rust&quot;&gt;(&lt;&#x2F;span&gt;&lt;span class=&quot;z-keyword z-operator z-rust&quot;&gt;&amp;amp;&lt;&#x2F;span&gt;&lt;span class=&quot;z-variable z-parameter z-rust&quot;&gt;self&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-function z-rust&quot;&gt;&lt;span class=&quot;z-meta z-function z-parameters z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-parameters z-end z-rust&quot;&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-function z-rust&quot;&gt; &lt;span class=&quot;z-meta z-function z-return-type z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-separator z-rust&quot;&gt;-&amp;gt;&lt;&#x2F;span&gt; &lt;span class=&quot;z-meta z-generic z-rust&quot;&gt;BoxFuture&lt;span class=&quot;z-punctuation z-definition z-generic z-begin z-rust&quot;&gt;&amp;lt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-generic z-rust&quot;&gt;&lt;span class=&quot;z-support z-type z-rust&quot;&gt;Result&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-definition z-generic z-begin z-rust&quot;&gt;&amp;lt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-path z-rust&quot;&gt;crate&lt;span class=&quot;z-punctuation z-accessor z-rust&quot;&gt;::&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-path z-rust&quot;&gt;api&lt;span class=&quot;z-punctuation z-accessor z-rust&quot;&gt;::&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;PingResponse&lt;span class=&quot;z-punctuation z-definition z-generic z-end z-rust&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-definition z-generic z-end z-rust&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-terminator z-rust&quot;&gt;;&lt;&#x2F;span&gt;
+
+    &lt;span class=&quot;z-comment z-line z-documentation z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-definition z-comment z-rust&quot;&gt;&#x2F;&#x2F;&#x2F;&lt;&#x2F;span&gt; Fetches the last accepted block.
+&lt;&#x2F;span&gt;    &lt;span class=&quot;z-meta z-annotation z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-definition z-annotation z-rust&quot;&gt;#&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-section z-group z-begin z-rust&quot;&gt;[&lt;&#x2F;span&gt;&lt;span class=&quot;z-variable z-annotation z-rust&quot;&gt;rpc&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-annotation z-parameters z-rust&quot;&gt;&lt;span class=&quot;z-meta z-group z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-group z-begin z-rust&quot;&gt;(&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-annotation z-parameters z-rust&quot;&gt;&lt;span class=&quot;z-meta z-group z-rust&quot;&gt;name &lt;span class=&quot;z-keyword z-operator z-rust&quot;&gt;=&lt;&#x2F;span&gt; &lt;span class=&quot;z-string z-quoted z-double z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-definition z-string z-begin z-rust&quot;&gt;&amp;quot;&lt;&#x2F;span&gt;lastAccepted&lt;span class=&quot;z-punctuation z-definition z-string z-end z-rust&quot;&gt;&amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-separator z-rust&quot;&gt;,&lt;&#x2F;span&gt; &lt;span class=&quot;z-meta z-function-call z-rust&quot;&gt;&lt;span class=&quot;z-variable z-function z-rust&quot;&gt;alias&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-group z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-group z-begin z-rust&quot;&gt;(&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-function-call z-rust&quot;&gt;&lt;span class=&quot;z-string z-quoted z-double z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-definition z-string z-begin z-rust&quot;&gt;&amp;quot;&lt;&#x2F;span&gt;chessvm.lastAccepted&lt;span class=&quot;z-punctuation z-definition z-string z-end z-rust&quot;&gt;&amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-function-call z-rust&quot;&gt;&lt;span class=&quot;z-meta z-group z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-group z-end z-rust&quot;&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-annotation z-parameters z-rust&quot;&gt;&lt;span class=&quot;z-meta z-group z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-group z-end z-rust&quot;&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-section z-group z-end z-rust&quot;&gt;]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+    &lt;span class=&quot;z-meta z-function z-rust&quot;&gt;&lt;span class=&quot;z-meta z-function z-rust&quot;&gt;&lt;span class=&quot;z-storage z-type z-function z-rust&quot;&gt;fn&lt;&#x2F;span&gt; &lt;&#x2F;span&gt;&lt;span class=&quot;z-entity z-name z-function z-rust&quot;&gt;last_accepted&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-function z-rust&quot;&gt;&lt;span class=&quot;z-meta z-function z-parameters z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-parameters z-begin z-rust&quot;&gt;(&lt;&#x2F;span&gt;&lt;span class=&quot;z-keyword z-operator z-rust&quot;&gt;&amp;amp;&lt;&#x2F;span&gt;&lt;span class=&quot;z-variable z-parameter z-rust&quot;&gt;self&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-function z-rust&quot;&gt;&lt;span class=&quot;z-meta z-function z-parameters z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-parameters z-end z-rust&quot;&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-function z-rust&quot;&gt; &lt;span class=&quot;z-meta z-function z-return-type z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-separator z-rust&quot;&gt;-&amp;gt;&lt;&#x2F;span&gt; &lt;span class=&quot;z-meta z-generic z-rust&quot;&gt;BoxFuture&lt;span class=&quot;z-punctuation z-definition z-generic z-begin z-rust&quot;&gt;&amp;lt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-generic z-rust&quot;&gt;&lt;span class=&quot;z-support z-type z-rust&quot;&gt;Result&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-definition z-generic z-begin z-rust&quot;&gt;&amp;lt;&lt;&#x2F;span&gt;LastAcceptedResponse&lt;span class=&quot;z-punctuation z-definition z-generic z-end z-rust&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-definition z-generic z-end z-rust&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-terminator z-rust&quot;&gt;;&lt;&#x2F;span&gt;
+
+    &lt;span class=&quot;z-comment z-line z-documentation z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-definition z-comment z-rust&quot;&gt;&#x2F;&#x2F;&#x2F;&lt;&#x2F;span&gt; Fetches the block.
+&lt;&#x2F;span&gt;    &lt;span class=&quot;z-meta z-annotation z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-definition z-annotation z-rust&quot;&gt;#&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-section z-group z-begin z-rust&quot;&gt;[&lt;&#x2F;span&gt;&lt;span class=&quot;z-variable z-annotation z-rust&quot;&gt;rpc&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-annotation z-parameters z-rust&quot;&gt;&lt;span class=&quot;z-meta z-group z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-group z-begin z-rust&quot;&gt;(&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-annotation z-parameters z-rust&quot;&gt;&lt;span class=&quot;z-meta z-group z-rust&quot;&gt;name &lt;span class=&quot;z-keyword z-operator z-rust&quot;&gt;=&lt;&#x2F;span&gt; &lt;span class=&quot;z-string z-quoted z-double z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-definition z-string z-begin z-rust&quot;&gt;&amp;quot;&lt;&#x2F;span&gt;getBlock&lt;span class=&quot;z-punctuation z-definition z-string z-end z-rust&quot;&gt;&amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-separator z-rust&quot;&gt;,&lt;&#x2F;span&gt; &lt;span class=&quot;z-meta z-function-call z-rust&quot;&gt;&lt;span class=&quot;z-variable z-function z-rust&quot;&gt;alias&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-group z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-group z-begin z-rust&quot;&gt;(&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-function-call z-rust&quot;&gt;&lt;span class=&quot;z-string z-quoted z-double z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-definition z-string z-begin z-rust&quot;&gt;&amp;quot;&lt;&#x2F;span&gt;chessvm.getBlock&lt;span class=&quot;z-punctuation z-definition z-string z-end z-rust&quot;&gt;&amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-function-call z-rust&quot;&gt;&lt;span class=&quot;z-meta z-group z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-group z-end z-rust&quot;&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-annotation z-parameters z-rust&quot;&gt;&lt;span class=&quot;z-meta z-group z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-group z-end z-rust&quot;&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-section z-group z-end z-rust&quot;&gt;]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+    &lt;span class=&quot;z-meta z-function z-rust&quot;&gt;&lt;span class=&quot;z-meta z-function z-rust&quot;&gt;&lt;span class=&quot;z-storage z-type z-function z-rust&quot;&gt;fn&lt;&#x2F;span&gt; &lt;&#x2F;span&gt;&lt;span class=&quot;z-entity z-name z-function z-rust&quot;&gt;get_block&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-function z-rust&quot;&gt;&lt;span class=&quot;z-meta z-function z-parameters z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-parameters z-begin z-rust&quot;&gt;(&lt;&#x2F;span&gt;&lt;span class=&quot;z-keyword z-operator z-rust&quot;&gt;&amp;amp;&lt;&#x2F;span&gt;&lt;span class=&quot;z-variable z-parameter z-rust&quot;&gt;self&lt;&#x2F;span&gt;, &lt;span class=&quot;z-variable z-parameter z-rust&quot;&gt;args&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-separator z-rust&quot;&gt;:&lt;&#x2F;span&gt; GetBlockArgs&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-function z-rust&quot;&gt;&lt;span class=&quot;z-meta z-function z-parameters z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-parameters z-end z-rust&quot;&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-function z-rust&quot;&gt; &lt;span class=&quot;z-meta z-function z-return-type z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-separator z-rust&quot;&gt;-&amp;gt;&lt;&#x2F;span&gt; &lt;span class=&quot;z-meta z-generic z-rust&quot;&gt;BoxFuture&lt;span class=&quot;z-punctuation z-definition z-generic z-begin z-rust&quot;&gt;&amp;lt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-generic z-rust&quot;&gt;&lt;span class=&quot;z-support z-type z-rust&quot;&gt;Result&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-definition z-generic z-begin z-rust&quot;&gt;&amp;lt;&lt;&#x2F;span&gt;GetBlockResponse&lt;span class=&quot;z-punctuation z-definition z-generic z-end z-rust&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-definition z-generic z-end z-rust&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-terminator z-rust&quot;&gt;;&lt;&#x2F;span&gt;
+
+    &lt;span class=&quot;z-comment z-line z-double-slash z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-definition z-comment z-rust&quot;&gt;&#x2F;&#x2F;&lt;&#x2F;span&gt; RPCs specific to ChessVM
+&lt;&#x2F;span&gt;    &lt;span class=&quot;z-comment z-line z-documentation z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-definition z-comment z-rust&quot;&gt;&#x2F;&#x2F;&#x2F;&lt;&#x2F;span&gt; Creates new Chess game
+&lt;&#x2F;span&gt;    &lt;span class=&quot;z-meta z-annotation z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-definition z-annotation z-rust&quot;&gt;#&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-section z-group z-begin z-rust&quot;&gt;[&lt;&#x2F;span&gt;&lt;span class=&quot;z-variable z-annotation z-rust&quot;&gt;rpc&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-annotation z-parameters z-rust&quot;&gt;&lt;span class=&quot;z-meta z-group z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-group z-begin z-rust&quot;&gt;(&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-annotation z-parameters z-rust&quot;&gt;&lt;span class=&quot;z-meta z-group z-rust&quot;&gt;name &lt;span class=&quot;z-keyword z-operator z-rust&quot;&gt;=&lt;&#x2F;span&gt; &lt;span class=&quot;z-string z-quoted z-double z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-definition z-string z-begin z-rust&quot;&gt;&amp;quot;&lt;&#x2F;span&gt;createGame&lt;span class=&quot;z-punctuation z-definition z-string z-end z-rust&quot;&gt;&amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-separator z-rust&quot;&gt;,&lt;&#x2F;span&gt; &lt;span class=&quot;z-meta z-function-call z-rust&quot;&gt;&lt;span class=&quot;z-variable z-function z-rust&quot;&gt;alias&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-group z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-group z-begin z-rust&quot;&gt;(&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-function-call z-rust&quot;&gt;&lt;span class=&quot;z-string z-quoted z-double z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-definition z-string z-begin z-rust&quot;&gt;&amp;quot;&lt;&#x2F;span&gt;chessvm.createGame&lt;span class=&quot;z-punctuation z-definition z-string z-end z-rust&quot;&gt;&amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-function-call z-rust&quot;&gt;&lt;span class=&quot;z-meta z-group z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-group z-end z-rust&quot;&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-annotation z-parameters z-rust&quot;&gt;&lt;span class=&quot;z-meta z-group z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-group z-end z-rust&quot;&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-section z-group z-end z-rust&quot;&gt;]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+    &lt;span class=&quot;z-meta z-function z-rust&quot;&gt;&lt;span class=&quot;z-meta z-function z-rust&quot;&gt;&lt;span class=&quot;z-storage z-type z-function z-rust&quot;&gt;fn&lt;&#x2F;span&gt; &lt;&#x2F;span&gt;&lt;span class=&quot;z-entity z-name z-function z-rust&quot;&gt;create_game&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-function z-rust&quot;&gt;&lt;span class=&quot;z-meta z-function z-parameters z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-parameters z-begin z-rust&quot;&gt;(&lt;&#x2F;span&gt;&lt;span class=&quot;z-keyword z-operator z-rust&quot;&gt;&amp;amp;&lt;&#x2F;span&gt;&lt;span class=&quot;z-variable z-parameter z-rust&quot;&gt;self&lt;&#x2F;span&gt;, &lt;span class=&quot;z-variable z-parameter z-rust&quot;&gt;args&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-separator z-rust&quot;&gt;:&lt;&#x2F;span&gt; CreateGameArgs&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-function z-rust&quot;&gt;&lt;span class=&quot;z-meta z-function z-parameters z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-parameters z-end z-rust&quot;&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-function z-rust&quot;&gt; &lt;span class=&quot;z-meta z-function z-return-type z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-separator z-rust&quot;&gt;-&amp;gt;&lt;&#x2F;span&gt; &lt;span class=&quot;z-meta z-generic z-rust&quot;&gt;BoxFuture&lt;span class=&quot;z-punctuation z-definition z-generic z-begin z-rust&quot;&gt;&amp;lt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-generic z-rust&quot;&gt;&lt;span class=&quot;z-support z-type z-rust&quot;&gt;Result&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-definition z-generic z-begin z-rust&quot;&gt;&amp;lt;&lt;&#x2F;span&gt;CreateGameResponse&lt;span class=&quot;z-punctuation z-definition z-generic z-end z-rust&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-definition z-generic z-end z-rust&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-terminator z-rust&quot;&gt;;&lt;&#x2F;span&gt;
+
+    &lt;span class=&quot;z-comment z-line z-documentation z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-definition z-comment z-rust&quot;&gt;&#x2F;&#x2F;&#x2F;&lt;&#x2F;span&gt; Make a Chess move
+&lt;&#x2F;span&gt;    &lt;span class=&quot;z-meta z-annotation z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-definition z-annotation z-rust&quot;&gt;#&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-section z-group z-begin z-rust&quot;&gt;[&lt;&#x2F;span&gt;&lt;span class=&quot;z-variable z-annotation z-rust&quot;&gt;rpc&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-annotation z-parameters z-rust&quot;&gt;&lt;span class=&quot;z-meta z-group z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-group z-begin z-rust&quot;&gt;(&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-annotation z-parameters z-rust&quot;&gt;&lt;span class=&quot;z-meta z-group z-rust&quot;&gt;name &lt;span class=&quot;z-keyword z-operator z-rust&quot;&gt;=&lt;&#x2F;span&gt; &lt;span class=&quot;z-string z-quoted z-double z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-definition z-string z-begin z-rust&quot;&gt;&amp;quot;&lt;&#x2F;span&gt;makeMove&lt;span class=&quot;z-punctuation z-definition z-string z-end z-rust&quot;&gt;&amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-separator z-rust&quot;&gt;,&lt;&#x2F;span&gt; &lt;span class=&quot;z-meta z-function-call z-rust&quot;&gt;&lt;span class=&quot;z-variable z-function z-rust&quot;&gt;alias&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-group z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-group z-begin z-rust&quot;&gt;(&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-function-call z-rust&quot;&gt;&lt;span class=&quot;z-string z-quoted z-double z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-definition z-string z-begin z-rust&quot;&gt;&amp;quot;&lt;&#x2F;span&gt;chessvm.makeMove&lt;span class=&quot;z-punctuation z-definition z-string z-end z-rust&quot;&gt;&amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-function-call z-rust&quot;&gt;&lt;span class=&quot;z-meta z-group z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-group z-end z-rust&quot;&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-annotation z-parameters z-rust&quot;&gt;&lt;span class=&quot;z-meta z-group z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-group z-end z-rust&quot;&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-section z-group z-end z-rust&quot;&gt;]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+    &lt;span class=&quot;z-meta z-function z-rust&quot;&gt;&lt;span class=&quot;z-meta z-function z-rust&quot;&gt;&lt;span class=&quot;z-storage z-type z-function z-rust&quot;&gt;fn&lt;&#x2F;span&gt; &lt;&#x2F;span&gt;&lt;span class=&quot;z-entity z-name z-function z-rust&quot;&gt;make_move&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-function z-rust&quot;&gt;&lt;span class=&quot;z-meta z-function z-parameters z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-parameters z-begin z-rust&quot;&gt;(&lt;&#x2F;span&gt;&lt;span class=&quot;z-keyword z-operator z-rust&quot;&gt;&amp;amp;&lt;&#x2F;span&gt;&lt;span class=&quot;z-variable z-parameter z-rust&quot;&gt;self&lt;&#x2F;span&gt;, &lt;span class=&quot;z-variable z-parameter z-rust&quot;&gt;args&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-separator z-rust&quot;&gt;:&lt;&#x2F;span&gt; MakeMoveArgs&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-function z-rust&quot;&gt;&lt;span class=&quot;z-meta z-function z-parameters z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-parameters z-end z-rust&quot;&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-function z-rust&quot;&gt; &lt;span class=&quot;z-meta z-function z-return-type z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-separator z-rust&quot;&gt;-&amp;gt;&lt;&#x2F;span&gt; &lt;span class=&quot;z-meta z-generic z-rust&quot;&gt;BoxFuture&lt;span class=&quot;z-punctuation z-definition z-generic z-begin z-rust&quot;&gt;&amp;lt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-generic z-rust&quot;&gt;&lt;span class=&quot;z-support z-type z-rust&quot;&gt;Result&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-definition z-generic z-begin z-rust&quot;&gt;&amp;lt;&lt;&#x2F;span&gt;MakeMoveResponse&lt;span class=&quot;z-punctuation z-definition z-generic z-end z-rust&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-definition z-generic z-end z-rust&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-terminator z-rust&quot;&gt;;&lt;&#x2F;span&gt;
+
+    &lt;span class=&quot;z-comment z-line z-documentation z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-definition z-comment z-rust&quot;&gt;&#x2F;&#x2F;&#x2F;&lt;&#x2F;span&gt; End a Chess game
+&lt;&#x2F;span&gt;    &lt;span class=&quot;z-meta z-annotation z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-definition z-annotation z-rust&quot;&gt;#&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-section z-group z-begin z-rust&quot;&gt;[&lt;&#x2F;span&gt;&lt;span class=&quot;z-variable z-annotation z-rust&quot;&gt;rpc&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-annotation z-parameters z-rust&quot;&gt;&lt;span class=&quot;z-meta z-group z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-group z-begin z-rust&quot;&gt;(&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-annotation z-parameters z-rust&quot;&gt;&lt;span class=&quot;z-meta z-group z-rust&quot;&gt;name &lt;span class=&quot;z-keyword z-operator z-rust&quot;&gt;=&lt;&#x2F;span&gt; &lt;span class=&quot;z-string z-quoted z-double z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-definition z-string z-begin z-rust&quot;&gt;&amp;quot;&lt;&#x2F;span&gt;endGame&lt;span class=&quot;z-punctuation z-definition z-string z-end z-rust&quot;&gt;&amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-separator z-rust&quot;&gt;,&lt;&#x2F;span&gt; &lt;span class=&quot;z-meta z-function-call z-rust&quot;&gt;&lt;span class=&quot;z-variable z-function z-rust&quot;&gt;alias&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-group z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-group z-begin z-rust&quot;&gt;(&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-function-call z-rust&quot;&gt;&lt;span class=&quot;z-string z-quoted z-double z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-definition z-string z-begin z-rust&quot;&gt;&amp;quot;&lt;&#x2F;span&gt;chessvm.endGame&lt;span class=&quot;z-punctuation z-definition z-string z-end z-rust&quot;&gt;&amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-function-call z-rust&quot;&gt;&lt;span class=&quot;z-meta z-group z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-group z-end z-rust&quot;&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-annotation z-parameters z-rust&quot;&gt;&lt;span class=&quot;z-meta z-group z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-group z-end z-rust&quot;&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-section z-group z-end z-rust&quot;&gt;]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+    &lt;span class=&quot;z-meta z-function z-rust&quot;&gt;&lt;span class=&quot;z-meta z-function z-rust&quot;&gt;&lt;span class=&quot;z-storage z-type z-function z-rust&quot;&gt;fn&lt;&#x2F;span&gt; &lt;&#x2F;span&gt;&lt;span class=&quot;z-entity z-name z-function z-rust&quot;&gt;end_game&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-function z-rust&quot;&gt;&lt;span class=&quot;z-meta z-function z-parameters z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-parameters z-begin z-rust&quot;&gt;(&lt;&#x2F;span&gt;&lt;span class=&quot;z-keyword z-operator z-rust&quot;&gt;&amp;amp;&lt;&#x2F;span&gt;&lt;span class=&quot;z-variable z-parameter z-rust&quot;&gt;self&lt;&#x2F;span&gt;, &lt;span class=&quot;z-variable z-parameter z-rust&quot;&gt;args&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-separator z-rust&quot;&gt;:&lt;&#x2F;span&gt; EndGameArgs&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-function z-rust&quot;&gt;&lt;span class=&quot;z-meta z-function z-parameters z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-parameters z-end z-rust&quot;&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-function z-rust&quot;&gt; &lt;span class=&quot;z-meta z-function z-return-type z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-separator z-rust&quot;&gt;-&amp;gt;&lt;&#x2F;span&gt; &lt;span class=&quot;z-meta z-generic z-rust&quot;&gt;BoxFuture&lt;span class=&quot;z-punctuation z-definition z-generic z-begin z-rust&quot;&gt;&amp;lt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-generic z-rust&quot;&gt;&lt;span class=&quot;z-support z-type z-rust&quot;&gt;Result&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-definition z-generic z-begin z-rust&quot;&gt;&amp;lt;&lt;&#x2F;span&gt;EndGameResponse&lt;span class=&quot;z-punctuation z-definition z-generic z-end z-rust&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-definition z-generic z-end z-rust&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-terminator z-rust&quot;&gt;;&lt;&#x2F;span&gt;
+
+    &lt;span class=&quot;z-comment z-line z-documentation z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-definition z-comment z-rust&quot;&gt;&#x2F;&#x2F;&#x2F;&lt;&#x2F;span&gt; Get Chess game state
+&lt;&#x2F;span&gt;    &lt;span class=&quot;z-meta z-annotation z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-definition z-annotation z-rust&quot;&gt;#&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-section z-group z-begin z-rust&quot;&gt;[&lt;&#x2F;span&gt;&lt;span class=&quot;z-variable z-annotation z-rust&quot;&gt;rpc&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-annotation z-parameters z-rust&quot;&gt;&lt;span class=&quot;z-meta z-group z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-group z-begin z-rust&quot;&gt;(&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-annotation z-parameters z-rust&quot;&gt;&lt;span class=&quot;z-meta z-group z-rust&quot;&gt;name &lt;span class=&quot;z-keyword z-operator z-rust&quot;&gt;=&lt;&#x2F;span&gt; &lt;span class=&quot;z-string z-quoted z-double z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-definition z-string z-begin z-rust&quot;&gt;&amp;quot;&lt;&#x2F;span&gt;getGame&lt;span class=&quot;z-punctuation z-definition z-string z-end z-rust&quot;&gt;&amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-separator z-rust&quot;&gt;,&lt;&#x2F;span&gt; &lt;span class=&quot;z-meta z-function-call z-rust&quot;&gt;&lt;span class=&quot;z-variable z-function z-rust&quot;&gt;alias&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-group z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-group z-begin z-rust&quot;&gt;(&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-function-call z-rust&quot;&gt;&lt;span class=&quot;z-string z-quoted z-double z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-definition z-string z-begin z-rust&quot;&gt;&amp;quot;&lt;&#x2F;span&gt;chessvm.getGame&lt;span class=&quot;z-punctuation z-definition z-string z-end z-rust&quot;&gt;&amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-function-call z-rust&quot;&gt;&lt;span class=&quot;z-meta z-group z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-group z-end z-rust&quot;&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-annotation z-parameters z-rust&quot;&gt;&lt;span class=&quot;z-meta z-group z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-group z-end z-rust&quot;&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-section z-group z-end z-rust&quot;&gt;]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+    &lt;span class=&quot;z-meta z-function z-rust&quot;&gt;&lt;span class=&quot;z-meta z-function z-rust&quot;&gt;&lt;span class=&quot;z-storage z-type z-function z-rust&quot;&gt;fn&lt;&#x2F;span&gt; &lt;&#x2F;span&gt;&lt;span class=&quot;z-entity z-name z-function z-rust&quot;&gt;get_game&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-function z-rust&quot;&gt;&lt;span class=&quot;z-meta z-function z-parameters z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-parameters z-begin z-rust&quot;&gt;(&lt;&#x2F;span&gt;&lt;span class=&quot;z-keyword z-operator z-rust&quot;&gt;&amp;amp;&lt;&#x2F;span&gt;&lt;span class=&quot;z-variable z-parameter z-rust&quot;&gt;self&lt;&#x2F;span&gt;, &lt;span class=&quot;z-variable z-parameter z-rust&quot;&gt;args&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-separator z-rust&quot;&gt;:&lt;&#x2F;span&gt; GetGameArgs&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-function z-rust&quot;&gt;&lt;span class=&quot;z-meta z-function z-parameters z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-parameters z-end z-rust&quot;&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-function z-rust&quot;&gt; &lt;span class=&quot;z-meta z-function z-return-type z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-separator z-rust&quot;&gt;-&amp;gt;&lt;&#x2F;span&gt; &lt;span class=&quot;z-meta z-generic z-rust&quot;&gt;BoxFuture&lt;span class=&quot;z-punctuation z-definition z-generic z-begin z-rust&quot;&gt;&amp;lt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-generic z-rust&quot;&gt;&lt;span class=&quot;z-support z-type z-rust&quot;&gt;Result&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-definition z-generic z-begin z-rust&quot;&gt;&amp;lt;&lt;&#x2F;span&gt;GetGameResponse&lt;span class=&quot;z-punctuation z-definition z-generic z-end z-rust&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-definition z-generic z-end z-rust&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;span class=&quot;z-punctuation z-terminator z-rust&quot;&gt;;&lt;&#x2F;span&gt;
+&lt;&#x2F;span&gt;&lt;span class=&quot;z-meta z-block z-rust&quot;&gt;&lt;span class=&quot;z-punctuation z-section z-block z-end z-rust&quot;&gt;}&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+  
+&lt;&#x2F;div&gt;
+&lt;p&gt;In addition to the functions &lt;code&gt;ping()&lt;&#x2F;code&gt;, &lt;code&gt;last_accepted()&lt;&#x2F;code&gt;, and &lt;code&gt;get_block()&lt;&#x2F;code&gt;, we see four additional gRPC functions. These functions expose the behaviors necessary for clients to interact with ChessVM; that is, we provide clients with a way to create chess games, to make moves on an existing chess board, to end an existing chess game, and to get the state of an existing chess game.&lt;&#x2F;p&gt;
+&lt;p&gt;With the exception of &lt;code&gt;get_game()&lt;&#x2F;code&gt;, which is inherently a read-only function, each of the remaining ChessVM gRPC functions, while all being write proposals, each modify the state of the system in different ways. Therefore, we need to introduce the concept of transactions which abstract the different write proposals as simply actions. These &amp;quot;actions&amp;quot; are then passed onto the VM whose job is to then execute them.&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;chess-vm&quot;&gt;Chess VM&lt;a class=&quot;zola-anchor&quot; href=&quot;#chess-vm&quot; aria-label=&quot;Anchor link for: chess-vm&quot; style=&quot;visibility: hidden;&quot;&gt;#&lt;&#x2F;a&gt;&lt;&#x2F;h3&gt;
+&lt;p&gt;Upon receiving a transaction from a client (via the chain handler), the VM first caches the transaction by storing it in its local mempool. From here, there exist two cases (let $n$ be the minimum number of transactions required in a ChessVM block):&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;If the node&#x27;s mempool has $n$ elements, the node notifies AvalancheGo that it is ready to produce a block.&lt;&#x2F;li&gt;
+&lt;li&gt;If the node&#x27;s mempool has less than $n$ elements, it does nothing&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;In the former case, once we notify AvalancheGo that we are ready to produce a block, and AvalancheGo accepts our request, we create a block that, in contrast to simply wrapping a byte-array like in TimestampVM, now contains a list of transactions.&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;verifying-blocks&quot;&gt;Verifying Blocks&lt;a class=&quot;zola-anchor&quot; href=&quot;#verifying-blocks&quot; aria-label=&quot;Anchor link for: verifying-blocks&quot; style=&quot;visibility: hidden;&quot;&gt;#&lt;&#x2F;a&gt;&lt;&#x2F;h2&gt;
+&lt;p&gt;Having now an idea of how a client action can eventually be included in a block (in the case of a write proposal), we now need to consider the following: we only want &lt;em&gt;valid&lt;&#x2F;em&gt; transactions to be included in our block. That is, we do not to include client actions that, if executed, cause an instance of ChessVM to crash. We can abstract this invariant even further by stating the following: we only want to append blocks which do not violate any invariants of the system. Examples of this include the following:&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;We do not want to append blocks whose parent block is not the same as the current block&lt;&#x2F;li&gt;
+&lt;li&gt;We do not want to append blocks whose timestamp is less than the timestamp of any existing, accepted block&lt;&#x2F;li&gt;
+&lt;li&gt;We do not want to append blocks which have already been accepted&lt;&#x2F;li&gt;
+&lt;li&gt;We do not want to append blocks which contain a transaction whose execution leads to a node crashing&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;In both TimestampVM and ChessVM (which implemenent the SnowmanVM interface), each block contains the function &lt;code&gt;verify()&lt;&#x2F;code&gt; which, when called, checks if said blocks adheres to the invariants of the system.&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;accepting-blocks&quot;&gt;Accepting Blocks&lt;a class=&quot;zola-anchor&quot; href=&quot;#accepting-blocks&quot; aria-label=&quot;Anchor link for: accepting-blocks&quot; style=&quot;visibility: hidden;&quot;&gt;#&lt;&#x2F;a&gt;&lt;&#x2F;h2&gt;
+&lt;p&gt;After a block has been produced and passed onto the consensus engine, we now consider the following question: who executes the block once it has been accepted by the consensus engine? As surprising as it may seem, the VM does not execute the necessary state changes, but rather the block itself! To understand why, let&#x27;s consider an arbitrary block:&lt;&#x2F;p&gt;
+&lt;pre class=&quot;mermaid&quot;&gt;
+  classDiagram
+    class Block {
+        +int timestamp
+        +ptr database
+        +list transactions
+        +accept()
+        +verify()
+    }
+&lt;&#x2F;pre&gt;
+&lt;p&gt;The block definition above, which is non-exhaustive, contains field that relate to its state (in particular, &lt;code&gt;timestamp&lt;&#x2F;code&gt; and &lt;code&gt;transactions&lt;&#x2F;code&gt;). However, there is also an additional field that may come as a surprise to many: a pointer to the node&#x27;s database. The reason that we need a pointer to the node&#x27;s database is by design of the &lt;code&gt;accept()&lt;&#x2F;code&gt; function; when called by the consensus engine, the &lt;code&gt;accept()&lt;&#x2F;code&gt; function needs to execute all state transitions associated with the block. Therefore, since &lt;code&gt;accept()&lt;&#x2F;code&gt; is a function of the block and &lt;em&gt;not&lt;&#x2F;em&gt; of the VM, all blocks need a pointer to the database itself.&lt;&#x2F;p&gt;
+&lt;p&gt;In both TimestampVM and ChessVM, all logic relating to executing write proposals
+(like storing an accepted block or modifying the state of a chess game) are
+behaviors of the block. Notice by designing blocks in this manner, AvalancheGo
+is able to start any necessary state transitions without calling the VM; this
+leads to the following architecture (in the case of a 3-node network):&lt;&#x2F;p&gt;
+&lt;pre class=&quot;mermaid&quot;&gt;
+  flowchart LR
+
+    subgraph node1[Node 1]
+
+        ago1[AvalancheGo]
+
+        subgraph vm1[VM]
+
+            db1[(Database)]
+
+        end
+
+        vm1 &amp;lt;--Blocks--&amp;gt; ago1
+
+    end
+
+    subgraph node2[Node 2]
+        
+
+        subgraph vm2[VM]
+
+            db2[(Database)]
+
+        end
+
+        ago2[AvalancheGo]
+
+        ago2 &amp;lt;--Blocks--&amp;gt; vm2
+
+    end
+
+    subgraph node3[Node 3]
+
+        ago3[AvalancheGo]
+
+        subgraph vm3[VM]
+
+            db3[(Database)]
+
+        end
+
+        ago3 &amp;lt;--Blocks--&amp;gt; vm3
+
+    end
+
+    ago2 &amp;lt;--Blocks--&amp;gt; ago3
+    ago1 &amp;lt;--Blocks--&amp;gt; ago2
+    ago1 &amp;lt;--Blocks--&amp;gt; ago3
+&lt;&#x2F;pre&gt;
+&lt;p&gt;The virtual machine is still responsible for maintaining its associated
+database, but it now delegates the responsibility of conduct state transitions
+to the block. Since blocks that will be appended to the blockchain are handled
+by AvalancheGo, we can imagine an instance of AvalancheGo consisting of the VM
+itself and a sets of verified blocks which are being considered to be appended.&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;lifetime-of-a-chessvm-transaction&quot;&gt;Lifetime of a ChessVM Transaction&lt;a class=&quot;zola-anchor&quot; href=&quot;#lifetime-of-a-chessvm-transaction&quot; aria-label=&quot;Anchor link for: lifetime-of-a-chessvm-transaction&quot; style=&quot;visibility: hidden;&quot;&gt;#&lt;&#x2F;a&gt;&lt;&#x2F;h2&gt;
+&lt;p&gt;Below is a timeline of how a transaction in ChessVM goes from a command to
+eventually being executed (we assume a node&#x27;s mempool has a capacity of $1$):&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;A client submits a gRPC command $c$ to an instance of ChessVM&lt;&#x2F;li&gt;
+&lt;li&gt;The receiving node, upon delivery of $c$, creates a transaction $t$ which
+contains $c$ and submits it to its own mempool&lt;&#x2F;li&gt;
+&lt;li&gt;The node then notify its instance of AvalancheGo that it is ready to build a
+block&lt;&#x2F;li&gt;
+&lt;li&gt;The local instance of AvalancheGo is notified and tells the node to produce a
+block&lt;&#x2F;li&gt;
+&lt;li&gt;The local node produces a block, checks its validity and if valid, returns the
+block to AvalancheGo&lt;&#x2F;li&gt;
+&lt;li&gt;Assuming there is no disagreement in the consensus process, AvalancheGo calls
+&lt;code&gt;accept()&lt;&#x2F;code&gt; on the accepted block; the accepted block makes the necessary state
+transitions&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;wrapping-up-for-now&quot;&gt;Wrapping Up (For Now)&lt;a class=&quot;zola-anchor&quot; href=&quot;#wrapping-up-for-now&quot; aria-label=&quot;Anchor link for: wrapping-up-for-now&quot; style=&quot;visibility: hidden;&quot;&gt;#&lt;&#x2F;a&gt;&lt;&#x2F;h2&gt;
+&lt;p&gt;In this article and the previous one, we have gone from thinking of distributed
+systems like Avalanche as solely &lt;em&gt;blockchains&lt;&#x2F;em&gt; to realizing the use case of
+blockchains as a component in distributed systems. Furthermore, its become
+obvious that VMs are not just servers that execute client requests; they are
+also responsible for communicating with its local consensus process to
+eventually come to agreement with the majority of the network on the world sate.&lt;&#x2F;p&gt;
+&lt;p&gt;At this point, there are many different paths which one can go about with
+ChessVM; the most natural progression would be to provide a low-level
+specification on the implemenation of ChessVM. However, as I mentioned at the
+beginning of this series, building a custom VM is &lt;em&gt;hard&lt;&#x2F;em&gt;; furthermore, while one
+can learn as much about VMs as they want, part of the process of becoming
+proficient with VMs is to &lt;em&gt;make&lt;&#x2F;em&gt; mistakes and &lt;em&gt;learn&lt;&#x2F;em&gt; from them. Therefore, part
+three (i.e. the last post) of the ChessVM series will be dedicated to discussing
+some (but not all) of the major mistakes and misunderstandings that I made&#x2F;had
+while building out ChessVM.&lt;&#x2F;p&gt;
+&lt;hr &#x2F;&gt;
+&lt;div class=&quot;footnote-definition&quot; id=&quot;1&quot;&gt;&lt;sup class=&quot;footnote-definition-label&quot;&gt;1&lt;&#x2F;sup&gt;
+&lt;p&gt;Immediately in the sense that we do not have to rely on the blockchain for the read request to go through. Rather, we need to obtain read access into the VM database.&lt;&#x2F;p&gt;
+&lt;&#x2F;div&gt;
+</content>
+	</entry>
+	<entry xml:lang="en">
+		<title>ChessVM Part I: What is a Blockchain?</title>
+		<published>2024-02-06T00:00:00+00:00</published>
+		<updated>2024-02-06T00:00:00+00:00</updated>
+		<link href="https://rodrigovillar.com/writing/chessvm-pt1/" type="text/html"/>
+		<id>https://rodrigovillar.com/writing/chessvm-pt1/</id>
+		<content type="html">&lt;p&gt;&lt;em&gt;Special thanks to &lt;a rel=&quot;nofollow noreferrer&quot; href=&quot;https:&#x2F;&#x2F;x.com&#x2F;martin_eckardt?s=20&quot;&gt;Martin Eckardt&lt;&#x2F;a&gt; for giving me the idea for this series.&lt;&#x2F;em&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;For the past nine months, I have been (somewhat) obsessed with the concept of
+building a custom virtual machine (VM). Having taught a blockchain development
+course at Cornell for some time and being familiar with the paradigm of smart
+contracts, I was interested in the concept of building a VM with a specific use
+case in mind, in contrast to other VMs like the Ethereum Virtual Machine (EVM)
+which allow for the hosting of arbitrary computable programs.&lt;&#x2F;p&gt;
+&lt;p&gt;What I didn&#x27;t realize at the time, however, was that this process would
+completely break down my understanding of blockchain as a whole. Furthermore,
+transitioning from writing smart contracts with Solidity&#x2F;Yul to working in an OS-like
+environment was perhaps one of the most difficult engineering challenges I&#x27;ve
+encountered. At the time that I am writing this, I am attempting (for a third
+time) to build a Rust-based custom VM which can be deployed on an Avalanche
+blockchain.&lt;&#x2F;p&gt;
+&lt;p&gt;Although building a custom VM has presented to me a number of challenges the
+past couple of months, I am now beginning to see the light at the end of the
+tunnel. I believe that my understanding of blockchain is now more in line with
+the literature of distributed systems (the field which blockchain builds upon)
+and the process of building a custom VM is no longer an alien task to me. But rather than writing a massive Medium
+article &lt;em&gt;simply stating&lt;&#x2F;em&gt; the accomplishment of building a custom VM, I am instead going
+to create a series of writings which aim to accomplish the following:&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;Establish what I believe a blockchain is&lt;&#x2F;li&gt;
+&lt;li&gt;Discuss the development process of building a VM and some takeaways&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;These series of writings will revolve around &lt;a rel=&quot;nofollow noreferrer&quot; href=&quot;https:&#x2F;&#x2F;github.com&#x2F;RodrigoVillar&#x2F;chessvm-rs&quot;&gt;&lt;em&gt;ChessVM&lt;&#x2F;em&gt;&lt;&#x2F;a&gt;, a custom VM whose
+architecture is designed for the creation and playing of Chess games on the
+blockchain. Before talking about &lt;em&gt;ChessVM&lt;&#x2F;em&gt;, or even how to go about implementing
+a virtual machine, I will start off with what I believe to be one of the biggest
+misconceptions in the industry:&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;is-a-blockchain-really-a-blockchain&quot;&gt;Is a &amp;quot;blockchain&amp;quot; really a blockchain?&lt;a class=&quot;zola-anchor&quot; href=&quot;#is-a-blockchain-really-a-blockchain&quot; aria-label=&quot;Anchor link for: is-a-blockchain-really-a-blockchain&quot; style=&quot;visibility: hidden;&quot;&gt;#&lt;&#x2F;a&gt;&lt;&#x2F;h2&gt;
+&lt;p&gt;I will first start off with a definition of what a blockchain is from the CS1998
+course at Cornell (formerly taught by &lt;a rel=&quot;nofollow noreferrer&quot; href=&quot;https:&#x2F;&#x2F;x.com&#x2F;DanielMistrik?s=20&quot;&gt;Daniel Mistrik&lt;&#x2F;a&gt;, a great friend of mine):&lt;&#x2F;p&gt;
+&lt;blockquote class=&quot;quote&quot;&gt;
+    
+    &lt;div class=&quot;icon&quot; style=&quot;display: none&quot;&gt;&lt;svg
+  width=&quot;20&quot;
+  height=&quot;20&quot;
+  viewBox=&quot;0 0 24 24&quot;
+  fill=&quot;none&quot;
+  xmlns=&quot;http:&#x2F;&#x2F;www.w3.org&#x2F;2000&#x2F;svg&quot;
+&gt;
+  &lt;path d=&quot;M9.13456 9H12.1346L10 14.6075H7L9.13456 9Z&quot; fill=&quot;currentColor&quot; &#x2F;&gt;
+  &lt;path d=&quot;M14.1346 9H17.1346L15 14.6075H12L14.1346 9Z&quot; fill=&quot;currentColor&quot; &#x2F;&gt;
+&lt;&#x2F;svg&gt;&lt;&#x2F;div&gt;
+    &lt;div class=&quot;content&quot;&gt;&lt;p&gt;A &lt;em&gt;blockchain&lt;&#x2F;em&gt; has the following properties:&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;Data is ordered into blocks and structured by Merkle Trees.&lt;&#x2F;li&gt;
+&lt;li&gt;Blocks are united through a linked list.&lt;&#x2F;li&gt;
+&lt;li&gt;Blocks are added on a regular basis to the linked list and must be valid to be added.&lt;&#x2F;li&gt;
+&lt;li&gt;Everyone has an identical version of the above and can propose new blocks that should be added.&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;div&gt;
+    
+&lt;&#x2F;blockquote&gt;
+&lt;p&gt;Visually, we can think of blockchains as the following:&lt;&#x2F;p&gt;
+&lt;pre class=&quot;mermaid&quot;&gt;
+  classDiagram
+direction LR
+Block 0 --|&amp;gt; Block 1
+Block 1 --|&amp;gt; Block 2
+Block 2 --|&amp;gt; Block 3
+
+    class Block0 {
+        TX1
+    }
+
+    class Block1 {
+        TX2
+        TX3
+        TX4
+    }
+
+    class Block2 {
+        TX5
+        TX6
+    }
+
+    class Block3 {
+        TX7
+        TX8
+    }
+&lt;&#x2F;pre&gt;
+&lt;p&gt;Easy enough, right? In distributed systems like Bitcoin where blocks contain
+lists of transactions (in addition to other data fields like timestamp, nonce,
+etc.), it&#x27;s easy to claim that the blockchain &lt;em&gt;is&lt;&#x2F;em&gt; the system. Want to send
+bitcoin to another user? Just create a transaction and make sure it is included
+in a confirmed block. Want to query your account balance? Just start at the
+genesis block and execute all transactions that involve your account.&lt;&#x2F;p&gt;
+&lt;p&gt;However, this system starts to break
+down once we introduce the concept of programs (i.e. smart contracts). Users of
+Ethereum and other blockchains which support programs are familiar with the notion of
+deploying smart contracts which they can read&#x2F;write from. However, where do
+these programs live? If you look at the content of the blocks under these types
+of systems, you will see that there is no such concept of a program &amp;quot;living&amp;quot; in
+a block. At this point, there seems to be two worlds within the
+construct that we call a blockchain:&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;pre class=&quot;mermaid&quot;&gt;
+  classDiagram
+direction LR
+Block 0 --|&amp;gt; Block 1
+Block 1 --|&amp;gt; Block 2
+Block 2 --|&amp;gt; Block 3
+
+    class Block0 {
+        TX1
+    }
+
+    class Block1 {
+        TX2
+        TX3
+        TX4
+    }
+
+    class Block2 {
+        TX5
+        TX6
+    }
+
+    class Block3 {
+        TX7
+        TX8
+    }
+&lt;&#x2F;pre&gt;
+&lt;pre class=&quot;mermaid&quot;&gt;
+  flowchart LR
+id1[Program 1]
+id2[Program 2]
+id1 ~~~ id2
+&lt;&#x2F;pre&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;The realization above makes it obvious that we need to look at blockchains from
+a different perspective, one that makes the use case of blockchains
+obvious. We do not necessarily need to change the technical properties of the
+blockchain data structure but rather, re-examine the relationship between the
+blockchain data structure and the networks that utilize said data structure.&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;blockchains-databases&quot;&gt;Blockchains &amp;lt;&amp;gt; Databases&lt;a class=&quot;zola-anchor&quot; href=&quot;#blockchains-databases&quot; aria-label=&quot;Anchor link for: blockchains-databases&quot; style=&quot;visibility: hidden;&quot;&gt;#&lt;&#x2F;a&gt;&lt;&#x2F;h2&gt;
+&lt;p&gt;For this next section, I will refer to the following function from the &lt;a rel=&quot;nofollow noreferrer&quot; href=&quot;https:&#x2F;&#x2F;ethereum.github.io&#x2F;yellowpaper&#x2F;paper.pdf&quot;&gt;Ethereum Yellowpaper&lt;&#x2F;a&gt;:&lt;&#x2F;p&gt;
+&lt;p&gt;$$
+\sigma_{t + 1} \equiv \Pi(\sigma_t, B)
+$$&lt;&#x2F;p&gt;
+&lt;p&gt;where $\Pi$ is the &amp;quot;block-level state-transition function,&amp;quot; $B$ is an
+arbitrary block, and $\sigma$ is the state of the network at a given time $t$.
+Here, we see that rather than the block being treated as the principal value, it
+is treated as an argument to produce something more significant: &lt;em&gt;state&lt;&#x2F;em&gt;. With
+the equation above as the state transition function of the distributed
+computer representing the network, we see that blocks and therefore, blockchains are data structures which dictate the state transitions
+of a computer. In the case of networks which utilize the EVM, blocks (and their
+transactions) update the world state, whether it be something as simple as
+sending coins between accounts or as complex as creating an entire
+decentralized exchange.&lt;&#x2F;p&gt;
+&lt;p&gt;The virtual machine (i.e. the computer responsible for handling the execution of
+the network), therefore, needs to
+store both the blockchain and its state somewhere. This brings us to a
+quote that I like quite a lot:&lt;&#x2F;p&gt;
+&lt;blockquote class=&quot;quote&quot;&gt;
+    
+    &lt;div class=&quot;icon&quot; style=&quot;display: none&quot;&gt;&lt;svg
+  width=&quot;20&quot;
+  height=&quot;20&quot;
+  viewBox=&quot;0 0 24 24&quot;
+  fill=&quot;none&quot;
+  xmlns=&quot;http:&#x2F;&#x2F;www.w3.org&#x2F;2000&#x2F;svg&quot;
+&gt;
+  &lt;path d=&quot;M9.13456 9H12.1346L10 14.6075H7L9.13456 9Z&quot; fill=&quot;currentColor&quot; &#x2F;&gt;
+  &lt;path d=&quot;M14.1346 9H17.1346L15 14.6075H12L14.1346 9Z&quot; fill=&quot;currentColor&quot; &#x2F;&gt;
+&lt;&#x2F;svg&gt;&lt;&#x2F;div&gt;
+    &lt;div class=&quot;content&quot;&gt;&lt;p&gt;[Virtual machines] are thin [database] wrappers&lt;&#x2F;p&gt;
+&lt;&#x2F;div&gt;
+    
+    &lt;div class=&quot;from&quot;&gt;&lt;p&gt;— Patrick O&#x27;Grady, VP of Engineering @ Ava Labs&lt;&#x2F;p&gt;
+&lt;&#x2F;div&gt;
+    
+&lt;&#x2F;blockquote&gt;
+&lt;p&gt;The networks that we consider as &amp;quot;blockchains,&amp;quot; in reality, are just distributed
+databases that are updated using a blockchain. Virtual machines, then, are (at a
+fundamental level) responsible for updating the database upon recieving a new
+block. What does &lt;em&gt;updating the database&lt;&#x2F;em&gt; entail? Well, this is up to the
+implementation of the VM! For example, I can create a &amp;quot;blockchain&amp;quot; which keeps
+track of a name. The associated virtual machine, &lt;em&gt;NameVM&lt;&#x2F;em&gt;, upon recieving a new
+block, grabs the name stored in the block and updates the name stored in the
+database.&lt;&#x2F;p&gt;
+&lt;pre class=&quot;mermaid&quot;&gt;
+  classDiagram
+direction LR
+Block 0 --|&amp;gt; Block 1
+Block 1 --|&amp;gt; Block 2
+Block 2 --|&amp;gt; Block 3
+
+    class Block0 {
+        Name: Rodrigo
+    }
+
+    class Block1 {
+        Name: Mac
+    }
+
+    class Block2 {
+        Name: Martin
+    }
+
+    class Block3 {
+        Name: Luigi
+    }
+&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;em&gt;NameVM&lt;&#x2F;em&gt;, although elementary, shows that rather than using general-purpose VMs,
+we can design VMs with a specific use case in mind. At a fundamental level, all
+networks which utilize blockchains have the following architecture:&lt;&#x2F;p&gt;
+&lt;pre class=&quot;mermaid&quot;&gt;
+  flowchart LR
+id1[(Database)]
+id2[Blockchain]
+id2 --&amp;gt; id1
+&lt;&#x2F;pre&gt;
+&lt;p&gt;With a custom VM, we can add to the architecture above; in the case of
+&lt;em&gt;ChessVM&lt;&#x2F;em&gt;, we have the following architecture (in the next post, we will see an
+alternate version which is &lt;em&gt;much more intricate&lt;&#x2F;em&gt;):&lt;&#x2F;p&gt;
+&lt;pre class=&quot;mermaid&quot;&gt;
+  ---
+
+title: ChessVM
+
+---
+
+flowchart LR
+
+subgraph sg1[&amp;quot;Chess State&amp;quot;]
+g1[&amp;quot;Game 1&amp;quot;]
+g2[&amp;quot;Game 2&amp;quot;]
+gn[&amp;quot;Game ...&amp;quot;]
+end
+
+id1[Blockchain]
+id2[(Database)]
+
+id1 --&amp;gt; id2
+sg1 --&amp;gt; id2
+&lt;&#x2F;pre&gt;&lt;h3 id=&quot;aside-vms-consensus&quot;&gt;Aside: VMs &amp;lt;&amp;gt; Consensus&lt;a class=&quot;zola-anchor&quot; href=&quot;#aside-vms-consensus&quot; aria-label=&quot;Anchor link for: aside-vms-consensus&quot; style=&quot;visibility: hidden;&quot;&gt;#&lt;&#x2F;a&gt;&lt;&#x2F;h3&gt;
+&lt;p&gt;While in the drafting stages of this article, one suggestion that I receieved is
+for a deeper elaboration on where virtual machines fit in the systems that we
+consider blockchains. To address this, I will elaborate on the relationship
+between virtual machines and the consensus engines which many people associate
+with blockchains. For this, I will refer to the following diagram which depicts
+an Avalanche-like protocol:&lt;&#x2F;p&gt;
+&lt;pre class=&quot;mermaid&quot;&gt;
+  ---
+
+title: Distributed System Using a Blockchain
+
+---
+
+sequenceDiagram
+actor Consensus
+actor VM
+actor Client
+
+    Client-&amp;gt;&amp;gt;VM: Send TX
+    loop while not enough TXs:
+       note over VM: wait
+    end
+    %% note over VM: Wait Until Block Can Be Built
+    %% VM-&amp;gt;&amp;gt;VM: Wait Until Block Can Be Built
+    VM-&amp;gt;&amp;gt;Consensus: I can build a block
+    Consensus-&amp;gt;&amp;gt;VM: Send me a block
+    VM-&amp;gt;&amp;gt;Consensus: Send proposed block
+    note over Consensus: Run Consensus Algorithm
+    Consensus-&amp;gt;&amp;gt; VM: Notify of accepted block
+    note over VM: Update State Accordingly
+&lt;&#x2F;pre&gt;
+&lt;p&gt;Here, we have three actors: the Consensus Client, the VM, and an arbitrary
+client. Elaborating on each one:&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;The Consensus Client: software responsible for telling the VM which blocks
+to append to the blockchain. By utilizing mechanisms&lt;sup class=&quot;footnote-reference&quot;&gt;&lt;a href=&quot;#1&quot;&gt;1&lt;&#x2F;a&gt;&lt;&#x2F;sup&gt; such as Proof of Stake
+or Proof of Work, the consensus client is able to coordinate with all other
+nodes in the network on which blocks to append to the blockchain.&lt;&#x2F;li&gt;
+&lt;li&gt;The VM: responsible for producing blocks and updating its state upon
+receiving a new block from the consensus client&lt;&#x2F;li&gt;
+&lt;li&gt;The Client: an arbitrary user who submits read&#x2F;write commands. In the case
+of write commands, this is in the form of a transaction; for the write
+command to be successful, the transaction must be included in a finalized
+block.&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;The diagram above makes clear the role of the VM: to execute commands from
+clients and to communicate with the consensus client regarding the state of the
+blockchain utilized. One important note here is that the consensus client is not a
+&lt;em&gt;singular&lt;&#x2F;em&gt; actor; each node runs their own consensus software which allows nodes
+to communicate amongst one another and to eventually come to consensus on the
+state of the blockchain. However, each VM interacts with their associated
+consensus client (which is what the diagram represents).&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;rust-sdk-or-avalanche-rs&quot;&gt;Rust-SDK (or Avalanche-RS)&lt;a class=&quot;zola-anchor&quot; href=&quot;#rust-sdk-or-avalanche-rs&quot; aria-label=&quot;Anchor link for: rust-sdk-or-avalanche-rs&quot; style=&quot;visibility: hidden;&quot;&gt;#&lt;&#x2F;a&gt;&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;a rel=&quot;nofollow noreferrer&quot; href=&quot;https:&#x2F;&#x2F;github.com&#x2F;ava-labs&#x2F;avalanche-rs&quot;&gt;Avalanche-RS&lt;&#x2F;a&gt; is a repository which,
+among other things, provides Avalanche-Types. This crate (which I will refer to
+as the &amp;quot;Rust SDK&amp;quot; for the rest of this series) is an SDK that, for the most
+part, provides us with the tools necessary to build a VM which we can then
+deploy on an Avalanche blockchain. I will be using the Rust SDK to build &lt;em&gt;ChessVM&lt;&#x2F;em&gt;.&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;wrapping-up-for-now&quot;&gt;Wrapping Up (For Now)&lt;a class=&quot;zola-anchor&quot; href=&quot;#wrapping-up-for-now&quot; aria-label=&quot;Anchor link for: wrapping-up-for-now&quot; style=&quot;visibility: hidden;&quot;&gt;#&lt;&#x2F;a&gt;&lt;&#x2F;h2&gt;
+&lt;p&gt;In the following posts, I will be discussing the architecture of ChessVM
+alongside the behavior of the VM itself. Furthermore, while I stand by my
+commentary of what a virtual machine is, I will expand upon my definition (hint:
+VMs are also servers!).&lt;&#x2F;p&gt;
+&lt;p&gt;- rjv&lt;&#x2F;p&gt;
+&lt;div class=&quot;footnote-definition&quot; id=&quot;1&quot;&gt;&lt;sup class=&quot;footnote-definition-label&quot;&gt;1&lt;&#x2F;sup&gt;&lt;pre class=&quot;z-code&quot;&gt;&lt;code&gt;&lt;span class=&quot;z-text z-plain&quot;&gt;Although I label mechanisms such as Proof of Stake as consensus
+mechanisms, the reality is that such mechanisms are actually Sybil
+resistance mechanisms. As an example, consider the Avalanche network; Proof
+of Stake is the sybil resistance mechanism while the Snowman consensus
+algorithm is the consensus mechanism used.
+&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;&#x2F;div&gt;
+</content>
+	</entry>
+</feed>
