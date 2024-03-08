@@ -1,6 +1,6 @@
 +++
 title = "ChessVM Part II: Building a Rust-Based VM"
-date = 2024-03-04
+date = 2024-03-08
 
 [taxonomies]
 tags = ["VMs", "Avalanche"]
@@ -350,20 +350,23 @@ eventually being executed (we assume a node's mempool has a capacity of $1$):
 
 ## Wrapping Up (For Now)
 
-In this article and the previous one, we have gone from thinking of distrbuted
-systems like Avalanche as _solely_ blockchains to realizing the use case of
-blockchains as a component in distributed systems. Furthermore, we now
-understand VMs as not only servers executing client requests, but also as
-components of the overall consensus process.
+In this article and the previous one, we have gone from thinking of distributed
+systems like Avalanche as solely _blockchains_ to realizing the use case of
+blockchains as a component in distributed systems. Furthermore, its become
+obvious that VMs are not just servers that execute client requests; they are
+also responsible for communicating with its local consensus process to
+eventually come to agreement with the majority of the network on the world sate.
 
-At this point, there are many different paths which one can go about with this
-new information; one can discuss more about the internals of virtual machines
-and how to go about making efficient upgrades. Instead of this, I will dedicate
-the last post of this ChessVM series to writing about a few of the several
-mistakes that I encountered while building ChessVM.
+At this point, there are many different paths which one can go about with
+ChessVM; the most natural progression would be to provide a low-level
+specification on the implemenation of ChessVM. However, as I mentioned at the
+beginning of this series, building a custom VM is *hard*; furthermore, while one
+can learn as much about VMs as they want, part of the process of becoming
+proficient with VMs is to *make* mistakes and *learn* from them. Therefore, part
+three (i.e. the last post) of the ChessVM series will be dedicated to discussing
+some (but not all) of the major mistakes and misunderstandings that I made/had
+while building out ChessVM.
 
 ---
 
 [^1]: Immediately in the sense that we do not have to rely on the blockchain for the read request to go through. Rather, we need to obtain read access into the VM database.
-
-[^2]: If the `verify()` function correctly checks if all invariants are maintained, then this is the case. Given the flexibility of designing a custom virtual machine, we are more than able to implement a version of `verify()` which does absolutely nothing. Of course, it is easy to see how things can go wrong.
